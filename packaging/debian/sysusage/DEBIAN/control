@@ -1,0 +1,19 @@
+Package: sysusage
+Version: 5.2
+Priority: optional
+Architecture: all
+Essential: no
+Depends: sysstat, rrdtool, librrds-perl, httpd
+Pre-Depends: perl
+Installed-Size: 1024
+Maintainer: Gilles Darold <gilles@darold.net>
+Provide: sysusage
+Description: SysUsage (System monitoring based on perl, rrdtool, and sysstat)
+    Sysusage continuously monitor your system informations and generate
+    periodical graph reports using rrdtool. All reports are shown through
+    a web interface.
+    Sysusage grabs all system activities using Sar and system commands
+    allowing you to keep tracks of your computer or server activity
+    during his life. It is a great help for performance analysis and
+    resources management. It include alarm notification through SMTP or
+    Nagios and plugin support.

@@ -1,0 +1,1783 @@
+#!/usr/bin/perl
+#------------------------------------------------------------------------------
+# sysusage - Full system monitoring with RRDTOOL
+# Copyright (C) 2003-2012 Gilles Darold
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; either version 3 of the License, or
+#   any later version.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software Foundation,
+#   Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
+#
+# Author: Gilles Darold <gilles@darold.net>
+#
+#------------------------------------------------------------------------------
+use strict qw(vars);
+
+use File::Copy;
+use Getopt::Long;
+use FileHandle;
+use SysUsage::Sar;
+use POSIX qw(locale_h sys_wait_h);
+setlocale(LC_ALL, 'C');
+
+use Benchmark;
+use Proc::Queue size => 4, ':all';
+
+my $VERSION = '5.2';
+
+my $SYSSTAT_VERSION = '';
+
+$SIG{'CHLD'} = 'DEFAULT';
+
+$| = 1;
+
+# Default configuration overriden by command line argument
+my $CONF_DIR = "/usr/local/sysusage/etc";
+my $CONF_FILE = "$CONF_DIR/sysusage.cfg";
+if (!-e $CONF_FILE) {
+	$CONF_FILE = '/usr/local/etc/sysusage.cfg';
+	if (!-e $CONF_FILE) {
+		$CONF_FILE = '/etc/sysusage.cfg';
+	}
+}
+my %Config    = ();
+my %CMD       = ();
+my @DATA      = ();
+my $nfiles    = 0;
+my $HELP      = 0;
+my $SHOWVER   = 0;
+my $VERBOSE   = 0;
+my $RUN_REMOTELY = '';
+my $rrds      = undef;
+my $sar_opt   = '-p -A 1 5';
+my $df_option = '-lkP -x tmpfs',
+my %PLUGIN    = ();
+my %REMOTEHOST= ();
+my %PROCESS   = ();
+my %TPROCESS  = ();
+my %WORKINF   = ();
+my $QUEUE_SIZE = 4;
+my %IOPS      = (
+	'5400' => 80,
+	'7200' => 100,
+	'10000' => 150,
+	'15000'	=> 210
+);
+my %RAID_FACTOR = (
+	'0' => 1,
+	'1' => 2,
+	'10' => 2,
+	'5' => 4,
+	'6' => 5
+);
+
+####
+# method used to fork as many child as wanted
+##
+sub spawn
+{
+	my $coderef = shift;
+
+	unless (@_ == 0 && $coderef && ref($coderef) eq 'CODE') {
+		print "usage: spawn CODEREF";
+		exit 0;
+	}
+
+	my $pid;
+	if (!defined($pid = fork)) {
+		print STDERR "Error: cannot fork: $!\n";
+		return;
+	} elsif ($pid) {
+		return; # the parent
+	}
+	# the child -- go spawn
+	$< = $>;
+	$( = $); # suid progs only
+
+	exit &$coderef();
+}
+
+# Get command line arguments
+&check_args();
+
+# Read configuration file
+&read_config();
+
+# Check if an other instance is running
+&check_running() if (!$Config{'GENERAL'}{'DEBUG'} && !$RUN_REMOTELY);
+
+# Look for loading RRDs perl module if sysusage is not run remotely
+if (!$RUN_REMOTELY) {
+	use RRDs;
+}
+
+my $HEARTBEAT = $Config{'GENERAL'}{'INTERVAL'}*2;
+my $DAEMON_MODE = $Config{'GENERAL'}{'DAEMON'} || 0;
+
+if ($DAEMON_MODE && !$Config{'GENERAL'}{'DEBUG'}) {
+        # detach from terminal
+        my $pid = fork;
+        exit 0 if ($pid);
+        die "Couldn't fork: $!" unless defined($pid);
+        POSIX::setsid() or die "Can't detach: \$!";
+}
+
+####
+# Die cleanly on signal for daemon mode
+####
+sub wait_child
+{
+        my $sig = shift;
+        print STDERR "Received terminating signal ($sig).\n";
+        $DAEMON_MODE = 0;
+	1 while wait != -1;
+	$SIG{INT} = \&wait_child;
+	$SIG{TERM} = \&wait_child;
+
+}
+# Die on kill -2, -3 or -15 
+$SIG{INT}  = \&wait_child;
+$SIG{TERM} = \&wait_child;
+$SIG{QUIT} = \&wait_child;
+
+# changing limit to $QUEUE_SIZE concurrent processes
+Proc::Queue::size($Config{'GENERAL'}{'PROC_QSIZE'} || $QUEUE_SIZE);
+
+# Set host list
+my $hostname = $RUN_REMOTELY || `$Config{'GENERAL'}{'HOSTNAME'}`;
+chomp($hostname);
+$hostname ||= 'localhost';
+my @HOSTS = ($hostname);
+push(@HOSTS, keys %REMOTEHOST) if (!$RUN_REMOTELY);
+$DAEMON_MODE = 0 if (!$RUN_REMOTELY);
+my $td = '';
+my $t0 = undef;
+
+my $uptime = &get_uptime;
+ 
+do {
+	$t0 = new Benchmark;
+
+	# Check if pooling is allowed 
+	if (&skipPool() == 0) {
+		# Ok now for each host fork a child to run the commands
+		foreach my $dhost ( @HOSTS ) {
+			spawn sub {
+				&do_monitor($dhost);
+			};
+		}
+	}
+	if ($DAEMON_MODE) {
+		my $t1 = new Benchmark;
+		$td = timediff($t1, $t0);
+		print "Loop took: ",timestr($td),"\n" if ($Config{'GENERAL'}{'DEBUG'});
+
+		sleep($Config{'GENERAL'}{'INTERVAL'});
+		if ($Config{'GENERAL'}{'DAEMON'}) {
+			# Read configuration again to allow modification in daemon mode
+			&read_config();
+			$HEARTBEAT = $Config{'GENERAL'}{'INTERVAL'}*2;
+		}
+	}
+
+} while ($DAEMON_MODE);
+
+1 while wait != -1;
+
+unlink("$Config{'GENERAL'}{'PID_DIR'}/sysusage.pid");
+
+if (!$td) {
+	my $t1 = new Benchmark;
+	my $td = timediff($t1, $t0);
+	print "Loop took: ",timestr($td),"\n" if ($Config{'GENERAL'}{'DEBUG'});
+}
+
+exit 0;
+
+sub do_monitor
+{
+	my ($host) = @_;
+
+	my $sshcmd = '';
+   
+	if (!$RUN_REMOTELY) {
+		if (exists $REMOTEHOST{$host} && (lc($REMOTEHOST{$host}{'enable'}) ne 'no')) {
+			# Force using the user defined ssh command
+			if ($REMOTEHOST{$host}{'ssh_command'}) {
+				$sshcmd = $REMOTEHOST{$host}{'ssh_command'};
+			# else compute command following the configuration parameters
+			} else {
+				$sshcmd = $REMOTEHOST{$host}{'ssh_bin'} || $Config{'GENERAL'}{'SSH_BIN'} || 'ssh';
+				my $identity_file = $REMOTEHOST{$host}{'ssh_identity'} || $Config{'GENERAL'}{'SSH_IDENTITY'} || '';
+				$sshcmd .= " -i $identity_file" if ($identity_file);
+				my $sshoptions = $REMOTEHOST{$host}{'ssh_options'} || $Config{'GENERAL'}{'SSH_OPTIONS'} || '';
+				$sshcmd .= " $sshoptions" if ($sshoptions);
+				my $sshuser = $REMOTEHOST{$host}{'ssh_user'} || $Config{'GENERAL'}{'SSH_USER'} || '';
+				if ($sshuser) {
+					$sshcmd .= " $sshuser\@";
+				} else {
+					$sshcmd .= " ";
+				}
+				$sshcmd .= $host . ' "' . ($REMOTEHOST{$host}{'remote_sysusage'} || 'rsysusage') . " -r $host\"";
+				my @remote_result = `$sshcmd 2>&1`;
+				if ($? == 0) {
+					unlink("$Config{'GENERAL'}{'DATA_DIR'}/$host/ssh.log");
+					&process_remote_data(@remote_result);
+				} else {
+					if (!$Config{'GENERAL'}{'DEBUG'}) {
+						unless(open(LFILE, ">$Config{'GENERAL'}{'DATA_DIR'}/$host/ssh.log")) {
+							unlink("$Config{'GENERAL'}{'PID_DIR'}/sysusage.pid");
+							die "ERROR: Can't write to file $Config{'GENERAL'}{'DATA_DIR'}/$host/ssh.log\n";
+						}
+						print LFILE @remote_result;
+						close(LFILE);
+					}
+				}
+				return;
+			}
+		} elsif (exists $REMOTEHOST{$host} && (lc($REMOTEHOST{$host}{'enable'}) eq 'no')) {
+			unlink("$Config{'GENERAL'}{'DATA_DIR'}/$host/ssh.log");
+			return;
+		}
+	}
+	my $sar = new SysUsage::Sar(
+		'sar' => $Config{'GENERAL'}{'SAR_BIN'},
+		'opt' => $sar_opt,
+		'debug' => $Config{'GENERAL'}{'DEBUG'},
+	);
+	if (!defined $sar) {
+		unlink("$Config{'GENERAL'}{'PID_DIR'}/sysusage.pid");
+		die "ERROR: Can't instantiate SysUsage::Sar module.\n"; 
+	}
+
+	# Get the current version of sysstat for backward compatibility
+	my $sar_version = $sar->{'sar_version'} || '1000000';
+	print "Sysstat version on $host: $sar_version\n" if ($Config{'GENERAL'}{'DEBUG'});
+	$sar_version =~ s/([\d\.]+)$/$1/;
+	$sar_version =~ s/\.//g;
+	if (exists $CMD{'work'} && ($sar_version < 815)) {
+		# Version lower than 8.1.5 do not have support for amount
+		# and percentage of memory needed for current workload
+		delete $CMD{'work'};
+	}
+	if (exists $CMD{'tcp'} && ($sar_version < 817)) {
+		# Version lower than 8.1.7 do not have TCP, UDP support
+		delete $CMD{'tcp'};
+	}
+	delete $CMD{'wait'} if (exists $CMD{'wait'});
+	if (exists $CMD{'socktw'} && ($sar_version < 800)) {
+		# Version lower than 8.1.7 do not have time wait socket support
+		delete $CMD{'socktw'};
+	}
+	# Parse sar output
+	$sar->parseSarOutput();
+
+	# First line is the system kernel + date + uptime + sysstat_version
+	my $kernel = $sar->getHeader();
+	chomp($kernel);
+	my $curdate = localtime(time);
+	if (!$RUN_REMOTELY && !$Config{'GENERAL'}{'DEBUG'}) {
+		unless(open(KFILE, ">$Config{'GENERAL'}{'DATA_DIR'}/$host/kernel.txt")) {
+			unlink("$Config{'GENERAL'}{'PID_DIR'}/sysusage.pid");
+			die "ERROR: Can't write to file $Config{'GENERAL'}{'DATA_DIR'}/$host/kernel.txt\n";
+		}
+		print KFILE "$kernel\n";
+		print KFILE "$curdate\n";
+		print KFILE "$uptime\n";
+		print KFILE "$SYSSTAT_VERSION\n";
+		close(KFILE);
+	} else {
+		print "$host\tkernel\t$kernel\n";
+		print "$host\tdatetime\t$curdate\n";
+		print "$host\tuptime\t$uptime\n";
+		print "$host\tsarversion\t$SYSSTAT_VERSION\n";
+	}
+
+	# Get running network interfaces
+	my @ifaces = `LC_ALL=C /sbin/ifconfig | grep -v "^ " | grep -v "^\$" | awk '{print \$1}'`;
+	chomp(@ifaces);
+
+	# Find what to do with the given command
+	foreach my $t (keys %CMD) {
+		if ($t =~ /^cpu/) {
+			&mon_cpu($sar, $host, $t);
+		} elsif ($t eq 'net') {
+			&mon_network($sar, $host, $t, @ifaces);
+		} elsif ($t eq 'err') {
+			&mon_net_error($sar, $host, $t, @ifaces);
+		} elsif ($t eq 'load') {
+			&mon_load_average($sar, $host, $t);
+		} elsif ($t eq 'mem') {
+			&mon_memory($sar, $host, $t);
+		} elsif ($t eq 'work') {
+			&mon_memory($sar, $host, $t);
+		} elsif ($t =~ /^dev_(.*)/) {
+			&mon_dev($sar, $host, $1) if ($1);
+		} elsif ($t eq 'swap') {
+			&mon_memory($sar, $host, $t);
+		} elsif ($t eq 'disk') {
+			&mon_disk_usage($sar, $host, $t);
+		} elsif ($t eq 'share') {
+			&mon_share_usage($sar, $host, $t);
+		} elsif ($t eq 'sock') {
+			&mon_socket($sar, $host, $t);
+		} elsif ($t eq 'socktw') {
+			&mon_socket($sar, $host, $t);
+		} elsif ($t eq 'io') {
+			&mon_io($sar, $host, $t);
+		} elsif ($t eq 'pswap') {
+			&mon_page_swap($sar, $host, $t);
+		} elsif ($t eq 'file') {
+			&mon_file($sar, $host, $t);
+		} elsif ($t =~ m#^queue_(.*)#) {
+			&mon_queue($sar, $host, $t, $1) if ($1);
+		} elsif ($t eq 'page') {
+			&mon_paging($sar, $host, $t);
+		} elsif ($t eq 'pcrea') {
+			&mon_process_created($sar, $host, $t);
+		} elsif ($t eq 'cswch') {
+			&mon_cswch($sar, $host, $t);
+		} elsif ($t eq 'intr') {
+			&mon_intr($sar, $host, $t);
+		} elsif ($t =~ /^proc_(.*)/) {
+			&mon_process($sar, $host, $t) if ($1);
+		} elsif ($t =~ /^tproc_(.*)/) {
+			&mon_thread_process($sar, $host, $t) if ($1);
+		} elsif ($t =~ /^hddtemp_(.*)/) {
+			&mon_hddtemp($sar, $host, $t, $1) if ($1);
+		} elsif ($t =~ /^sensors_(.*)/) {
+			&mon_sensors($sar, $host, $t, $1) if ($1);
+		} elsif ($t eq 'tcp') {
+			&mon_tcp($sar, $host, $t);
+		} else {
+			print "ERROR: Unknown statistic type '$t' for $host.\n";
+		}
+	}
+
+	# Process all customized monitoring command
+	foreach my $name (keys %PLUGIN) {
+		next if (lc($PLUGIN{$name}{enable}) eq 'no');
+		next if ( $RUN_REMOTELY && (lc($PLUGIN{$name}{remote}) eq 'no') );
+		&mon_customized($host, $name, $PLUGIN{$name}{program}, $PLUGIN{$name}{maxthreshold} || 0, $PLUGIN{$name}{minthreshold} || 0, $PLUGIN{$name}{delaythreshold} || 0);
+	}
+
+}
+
+####
+# Function used to return CPU usage
+# It return the total User + System CPU Utilization.
+# This function report statistics for ALL CPU.
+####
+sub mon_cpu
+{
+	my ($sar, $host, $type) = @_;
+
+	my %cpuinfo = $sar->getReportType('cpu');
+	foreach my $name (keys %cpuinfo) {
+		next if (($type eq 'cpuall') && ($name ne 'all'));
+		my $total = 100 - $cpuinfo{$name}{'%idle'};
+print "CPU: $name => used: $total, iowait: ", $cpuinfo{$name}{'%iowait'}, "\n" if ($Config{'GENERAL'}{'DEBUG'});
+print "CPU: $name => user: ", $cpuinfo{$name}{'%user'}, ", nice: ", $cpuinfo{$name}{'%nice'}, ", system: ", $cpuinfo{$name}{'%system'}, "\n" if ($Config{'GENERAL'}{'DEBUG'});
+if (exists $cpuinfo{$name}{'%guest'}) {
+	print "CPU: $name => steal: ", $cpuinfo{$name}{'%steal'}, ", guest: ", $cpuinfo{$name}{'%guest'}, "\n" if ($Config{'GENERAL'}{'DEBUG'});
+}
+		my $target = 'cpu';
+		$target .= $name if ($name ne 'all');
+		if (exists $CMD{'cpu'} || exists $CMD{'cpuall'}) {
+			if (!$total && !$cpuinfo{$name}{'%iowait'}) {
+				&insertIntDataNull($host, $target);
+			} else {
+				&insertIntData($host, $target, $total, $cpuinfo{$name}{'%iowait'});
+			}
+			# Just warn on total of CPU usage (all cpus)
+			&send_warning($host, $target, 'cpu', "Cpu", $total) if ($name eq 'all');
+			$target = 'cpudist';
+			$target .= $name if ($name ne 'all');
+			if (!$cpuinfo{$name}{'%user'} && !$cpuinfo{$name}{'%nice'} && !$cpuinfo{$name}{'%system'}) {
+				&insertIntDataNull($host, $target);
+			} else {
+				&insertIntData($host, $target, $cpuinfo{$name}{'%user'}, $cpuinfo{$name}{'%nice'}, $cpuinfo{$name}{'%system'});
+			}
+			if (exists $cpuinfo{$name}{'%guest'}) {
+				$target = 'cpuvirt';
+				$target .= $name if ($name ne 'all');
+				if (!$cpuinfo{$name}{'%steal'} && !$cpuinfo{$name}{'%guest'}) {
+					&insertIntDataNull($host, $target);
+				} else {
+					&insertIntData($host, $target, $cpuinfo{$name}{'%steal'}, $cpuinfo{$name}{'%guest'});
+				}
+			}
+		}
+	}
+}
+
+####
+# Function used to return Network usage
+# It return the number of bytes per second on a given interface.
+# The interface must be specified with command line option -i
+####
+sub mon_network
+{
+	my ($sar, $host, $type, @ifaces) = @_;
+
+	my %netinfo = $sar->getReportType('net');
+	foreach my $name (keys %netinfo) {
+		next if ( ($#ifaces >= 0) && !grep(/^$name$/, @ifaces) );
+		my $rxlbl = 'rxbyt';
+		my $txlbl = 'txbyt';
+		if (!exists($netinfo{$name}{rxbyt})) {
+			$rxlbl = 'rxkB';
+			$txlbl = 'txkB';
+			# Revert to byte for compatibility
+			$netinfo{$name}{$rxlbl} *= 1000;
+			$netinfo{$name}{$txlbl} *= 1000;
+		}
+print "NET: $name => In: $netinfo{$name}{$rxlbl}, Out: $netinfo{$name}{txbyt}\n" if ($Config{'GENERAL'}{'DEBUG'});
+		my $target = 'net_' . $name;
+		if (exists $CMD{'net'}) {
+			if (!$netinfo{$name}{$rxlbl} && !$netinfo{$name}{$txlbl}) {
+				&insertIntDataNull($host, $target);
+			} else {
+				&insertIntData($host, $target, $netinfo{$name}{$rxlbl}, $netinfo{$name}{$txlbl}, 0);
+			}
+			&send_warning($host, $target, $type, "Network usage on $name", $netinfo{$name}{$rxlbl}, $netinfo{$name}{$txlbl});
+		}
+	}
+}
+
+####
+# Function used to return the load average statistics
+# It return the system load average for the last minute
+####
+sub mon_load_average
+{
+	my ($sar, $host, $type) = @_;
+
+	my %loadinfo = $sar->getReportType('load');
+print "LOAD: Queue length = $loadinfo{'runq-sz'}, Number of process = $loadinfo{'plist-sz'}, load average = $loadinfo{'ldavg-1'} / $loadinfo{'ldavg-5'} / $loadinfo{'ldavg-15'}\n" if ($Config{'GENERAL'}{'DEBUG'});
+	if (exists $CMD{'load'}) {
+		if (!$loadinfo{'ldavg-1'} && !$loadinfo{'ldavg-5'} && !$loadinfo{'ldavg-15'}) {
+			&insertIntDataNull($host, 'load');
+		} else {
+			&insertIntData($host, 'load', $loadinfo{'ldavg-1'}, $loadinfo{'ldavg-5'}, $loadinfo{'ldavg-15'});
+		}
+		&send_warning($host, $type, $type, 'Load average', $loadinfo{'ldavg-1'});
+	}
+}
+
+####
+# Function used to return the load average statistics
+# It return the system load average for the last minute
+####
+sub mon_dev
+{
+	my ($sar, $host, $device) = @_;
+
+	my %devinfo = $sar->getReportType('dev');
+	# Remove renaming part of the device
+	$device =~ s/\s*\(.*\).*//;
+
+	foreach my $name (keys %devinfo) {
+		next if ( ($device ne 'all') && ($device ne $name));
+print "DEV $name: %util = $devinfo{$name}{'%util'}, rd_sec/s = $devinfo{$name}{'rd_sec'}, wr_sec/s = $devinfo{$name}{'wr_sec'}, avgqu-sz => $devinfo{$name}{'avgqu-sz'}\n" if ($Config{'GENERAL'}{'DEBUG'});
+		my $target = 'dev_';
+		$target .= $name;
+		if (exists $CMD{$target}) {
+			$target = $name;
+			$target =~ s#_#__#g;
+			$target =~ s#/#_#g;
+			$target = 'dev_' . $target;
+			if (!$devinfo{$name}{'%util'} && !$devinfo{$name}{'avgqu-sz'}) {
+				&insertIntDataNull($host, $target);
+			} else {
+				&insertIntData($host, $target, $devinfo{$name}{'%util'},$devinfo{$name}{'avgqu-sz'},0);
+			}
+			&send_warning($host, $target, 'dev', "Device $name CPU Usage", $devinfo{$name}{'%util'});
+			$target = $name;
+			$target =~ s#_#__#g;
+			$target =~ s#/#_#g;
+			$target = 'devio_' . $target;
+			if (!$devinfo{$name}{'rd_sec'} && !$devinfo{$name}{'wr_sec'}) {
+				&insertIntDataNull($host, $target);
+			} else {
+				&insertIntData($host, $target, $devinfo{$name}{'rd_sec'}, $devinfo{$name}{'wr_sec'},0);
+			}
+			$target = $name;
+			$target =~ s#_#__#g;
+			$target =~ s#/#_#g;
+			$target = 'devwait_' . $target;
+			if (!$devinfo{$name}{'await'} && !$devinfo{$name}{'svctm'}) {
+				&insertIntDataNull($host, $target);
+			} else {
+				&insertIntData($host, $target, $devinfo{$name}{'await'}, $devinfo{$name}{'svctm'},0);
+			}
+			$target = 'dev_';
+			$target .= $name;
+			if (exists $WORKINF{$target}) {
+				# Get read/write workload
+				my $r_work = 0;
+				my $w_work = 0;
+				if ($devinfo{$name}{'rd_sec'} && $devinfo{$name}{'wr_sec'}) {
+					$r_work = $devinfo{$name}{'rd_sec'} / ($devinfo{$name}{'rd_sec'} + $devinfo{$name}{'wr_sec'});
+					$w_work = $devinfo{$name}{'wr_sec'} / ($devinfo{$name}{'rd_sec'} + $devinfo{$name}{'wr_sec'});
+				}
+				$w_work ||= 1;
+				$r_work ||= 1;
+				# Calculate IOPS
+				my $iops = int(($WORKINF{$target}{ndisk} * $IOPS{$WORKINF{$target}{rpm}}) / ($r_work + ($RAID_FACTOR{$WORKINF{$target}{raid}} * $w_work)));
+				my $tps = $devinfo{$name}{'tps'} || 0;
+
+				$target = $name;
+				$target =~ s#_#__#g;
+				$target =~ s#/#_#g;
+				$target = 'devwork_' . $target;
+print "DEVWORK $name: \%read = $r_work, \%write = $w_work, tps = $tps, iops = $iops\n" if ($Config{'GENERAL'}{'DEBUG'});
+				if (!$iops && !$tps) {
+					&insertIntDataNull($host, $target);
+				} else {
+					&insertIntData($host, $target, $tps, $iops, 0);
+				}
+			}
+			$target = 'dev_';
+			$target .= $name;
+			my $blks = $devinfo{$name}{'rd_sec'} + $devinfo{$name}{'wr_sec'};
+			my $busy = $devinfo{$name}{'%util'} || 1;
+			my $throughput = int( ($blks*50)/$busy );
+print "DEVTPUT $name: ($blks*50)/$busy = ", $throughput, "\n" if ($Config{'GENERAL'}{'DEBUG'});
+			$target = $name;
+			$target =~ s#_#__#g;
+			$target =~ s#/#_#g;
+			$target = 'devtput_' . $target;
+			if (!$throughput) {
+				&insertIntDataNull($host, $target);
+			} else {
+				&insertIntData($host, $target, $throughput, 0, 0);
+			}
+		}
+	}
+}
+
+####
+# Function used to return the memory usage
+# It return the total Megabyte of used memory
+# with and witout caching.
+####
+sub mon_memory
+{
+	my ($sar, $host, $type) = @_;
+
+	my %meminfo = $sar->getReportType($type);
+
+	if (($type eq 'mem') && exists $CMD{'mem'}) {
+		# Total memory in use +/- shared/buffer/cache
+		$meminfo{kbmemused} *= 1000;
+		$meminfo{kbbuffers} *= 1000;
+		$meminfo{kbcached} *= 1000;
+		$meminfo{kbmemshrd} *= 1000 if (exists $meminfo{kbmemshrd});
+		$meminfo{realused} = $meminfo{kbmemused} - $meminfo{kbbuffers} - $meminfo{kbcached};
+		$meminfo{realused} -= $meminfo{kbmemshrd} if (exists $meminfo{kbmemshrd});
+		$meminfo{kbcached} += $meminfo{kbbuffers};
+print "MEM: used => $meminfo{kbmemused} B, real used (without shared/buffer/cache) => $meminfo{realused} B, cached =>  $meminfo{kbcached} B\n" if ($Config{'GENERAL'}{'DEBUG'});
+
+		if (!$meminfo{realused} && !$meminfo{kbmemused}) {
+			&insertIntDataNull($host, 'mem');
+		} else {
+			&insertIntData($host, 'mem', $meminfo{kbmemused}, $meminfo{realused}, $meminfo{kbcached});
+		}
+		# memused: percentage of memory used.
+		my $totalmem = int(($meminfo{kbmemused} / ($meminfo{'%memused'} || 1)) * 100);
+		my $realpercentused = int(($meminfo{realused}*100)/($totalmem || 1));
+		&send_warning($host, 'mem','mem', 'Memory', $realpercentused);
+	}
+	if (($type eq 'swap') && exists $CMD{'swap'}) {
+print "SWAP: used => ", $meminfo{'%swpused'}, "%, cached => ", $meminfo{'%swpcad'}, "%\n" if ($Config{'GENERAL'}{'DEBUG'});
+		if (!$meminfo{'%swpused'} && !$meminfo{'%swpcad'}) {
+			&insertIntDataNull($host, 'swap');
+		} else {
+			&insertIntData($host, 'swap', $meminfo{'%swpused'}, $meminfo{'%swpcad'}, 0);
+		}
+		&send_warning($host, 'swap','swap', 'Swap', $meminfo{'%swpused'});
+	}
+	if (($type eq 'work') && exists $CMD{'work'}) {
+		# Total memory in use without shared/buffer/cache
+		$meminfo{kbcommit} *= 1000;
+print "WORK: memory needed => $meminfo{kbcommit} B, Percent => $meminfo{'%commit'} %\n" if ($Config{'GENERAL'}{'DEBUG'});
+
+		if (!$meminfo{kbcommit}) {
+			&insertIntDataNull($host, 'work');
+		} else {
+			&insertIntData($host, 'work', $meminfo{kbcommit}, 0, 0);
+		}
+		&send_warning($host, 'work','work', 'Memory needed for current workload', $meminfo{'%commit'});
+	}
+}
+
+####
+# Function used to return the disk usage
+# It return the total percentage of disk use for a given
+# partition.
+####
+sub mon_disk_usage
+{
+	my ($sar, $host, $type) = @_;
+
+	my %diskinfo = ();
+	my @retsize = `LC_ALL=C df $df_option | grep -v "Filesystem" | grep -v "^none"`;
+	my @retnode = `LC_ALL=C df -i $df_option | grep -v "Filesystem" | grep -v "^none"`;
+	for (my $i = 0; $i <= $#retsize; $i++) {
+		chomp($retsize[$i], $retnode[$i]);
+		my ($sdevice, $ssize, $sused, $sfree, $spercent, $sdir) = split(/\s+/, $retsize[$i]);
+		my ($idevice, $isize, $iused, $ifree, $ipercent, $idir) = split(/\s+/, $retnode[$i]);
+		# Get exclude mount point from configuration
+		if ($#{$CMD{$type}} == 1) {
+			my @exclude = split(m#[;]+#, $CMD{$type}[1]);
+			if (grep($sdir =~ m#$_#, @exclude)) {
+	print "DISK: $sdir => Exclusion match\n" if ($Config{'GENERAL'}{'DEBUG'});
+				next;
+			}
+		}
+		next if (!$sdir);
+		$spercent =~ s/\%//;
+		$spercent ||= 0;
+		$ipercent =~ s/\%//;
+		$ipercent ||= 0;
+	print "DISK: $sdir => Free space: $spercent %, Inode free: $ipercent\n" if ($Config{'GENERAL'}{'DEBUG'});
+		if ($Config{'GENERAL'}{'DEBUG'} && ($ipercent eq '-')) {
+			print "\tWARNING: this file system can not report inode\n";
+		}
+		my $nowarn = 0;
+		if ($ipercent eq '-') {
+			$ipercent = 0;
+			$nowarn = 1;
+		}
+		my $target = 'disk' . $sdir;
+		$target =~ s#_#__#g;
+		$target =~ s#/#_#g;
+		if (exists $CMD{'disk'}) {
+			if (!$spercent && !$ipercent) {
+				&insertIntDataNull($host, $target);
+			} else {
+				&insertIntData($host, $target, $spercent, $ipercent, 0);
+			}
+			&send_warning($host, $target, $type, "Disk space on $sdir", $spercent);
+			&send_warning($host, $target, $type, "Inode used on $idir", $ipercent) if (!$nowarn);
+		}
+	}
+}
+
+####
+# Function used to return the disk usage on /dev/shm the
+# POSIX Share Memory usage virtual device.
+# It return the total percentage of disk use for this
+# partition.
+####
+sub mon_share_usage
+{
+	my ($sar, $host, $type) = @_;
+
+	my %diskinfo = ();
+	my $line = `LC_ALL=C df -k /dev/shm | grep -v "Filesystem"`;
+	chomp($line);
+	my ($device, $size, $used, $free, $percent, $dir) = split(/\s+/, $line);
+	$percent =~ s/\%//;
+	$percent ||= 0;
+	print "SHARE: $dir => Total: $size, used: $percent %\n" if ($Config{'GENERAL'}{'DEBUG'});
+	if (exists $CMD{$type}) {
+		if (!$percent) {
+			&insertIntDataNull($host, $type);
+		} else {
+			&insertIntData($host, $type, $percent, 0, 0);
+		}
+		&send_warning($host, $type, $type, "Posix Share memory usage", $percent);
+	}
+}
+
+
+####
+# Function used to return the running process number.
+####
+sub mon_process
+{
+	my ($sar, $host, $type) = @_;
+
+	if (exists $CMD{"$type"}) {
+		my %procinfo = ();
+		my $count = `LC_ALL=C ps -e -o command | grep -E "$PROCESS{$type}" | grep -v grep | wc -l`;
+		chomp($count);
+		$count =~ s/^\s+//g;
+		$procinfo{$type} = $count || 0;
+print "PROC: $PROCESS{$type} => $procinfo{$type} process\n" if ($Config{'GENERAL'}{'DEBUG'});
+		
+		if (!$procinfo{$type}) {
+			&insertIntDataNull($host, $type);
+		} else {
+			&insertIntData($host, $type, $procinfo{$type}, 0, 0);
+		}
+		&send_warning($host, $type, $type, "Number of $PROCESS{$type} process", $procinfo{$type});
+	}
+
+}
+
+####
+# Function used to return the running thread process number.
+####
+sub mon_thread_process
+{
+	my ($sar, $host, $type) = @_;
+
+	if (exists $CMD{"$type"}) {
+		my %procinfo = ();
+		my $count = `LC_ALL=C ps -eL -o command | grep -E "$TPROCESS{$type}" | grep -v grep | wc -l`;
+		chomp($count);
+		$count =~ s/^\s+//g;
+		$procinfo{$type} = $count || 0;
+print "TPROC: $TPROCESS{$type} => $procinfo{$type} process\n" if ($Config{'GENERAL'}{'DEBUG'});
+		if (!$procinfo{$type}) {
+			&insertIntDataNull($host, $type);
+		} else {
+			&insertIntData($host, $type, $procinfo{$type}, 0, 0);
+		}
+		&send_warning($host, $type, $type, "Number of $TPROCESS{$type} thread", $procinfo{$type});
+	}
+
+}
+####
+# Function used to return the running process number.
+####
+sub mon_queue
+{
+	my ($sar, $host, $type, $dir) = @_;
+
+	if (-d $dir) {
+		use File::Find;
+		$nfiles = 0;
+		sub wanted {
+			$nfiles++ if (-f); # Skip directory
+		}
+		find(\&wanted, $dir);
+print "QUEUE: $dir => $nfiles files\n" if ($Config{'GENERAL'}{'DEBUG'});
+		my $target = 'queue' . $dir;
+		$target =~ s/_/__/g;
+		$target =~ s/\//_/g;
+		if (!$nfiles) {
+			&insertIntDataNull($host, $target);
+		} else {
+			&insertIntData($host, $target, $nfiles, 0, 0);
+		}
+		&send_warning($host, $type, $type, "Number of files in $dir", $nfiles);
+	}
+}
+
+
+####
+# Function used to return the total number of sockets in use.
+####
+sub mon_socket
+{
+	my ($sar, $host, $type) = @_;
+
+	my %sockinfo = $sar->getReportType('sock');
+
+	if (($type eq 'sock') && exists $CMD{'sock'}) {
+print "SOCK: total => $sockinfo{totsck}, tcp => $sockinfo{tcpsck}, udp => $sockinfo{udpsck}, raw => $sockinfo{rawsck}\n" if ($Config{'GENERAL'}{'DEBUG'});
+		if (!$sockinfo{totsck} && !$sockinfo{tcpsck} && !$sockinfo{udpsck}) {
+			&insertIntDataNull($host, 'sock');
+		} else {
+			&insertIntData($host, 'sock', $sockinfo{totsck}, $sockinfo{tcpsck}, $sockinfo{udpsck});
+		}
+		&send_warning($host, $type, $type, "Socket usage", $sockinfo{tosck});
+	}
+	if (($type eq 'socktw') && exists $CMD{'socktw'}) {
+print "SOCKTW: tcp-tw => $sockinfo{'tcp-tw'}\n" if ($Config{'GENERAL'}{'DEBUG'});
+		if (!$sockinfo{'tcp-tw'}) {
+			&insertIntDataNull($host, 'socktw');
+		} else {
+			&insertIntData($host, 'socktw', $sockinfo{'tcp-tw'},0,0);
+		}
+		&send_warning($host, $type, $type, "Socket TIME_WAIT usage", $sockinfo{'tcp-tw'});
+	}
+}
+
+####
+# Function used to return the number read and write IO request.
+####
+sub mon_io
+{
+	my ($sar, $host, $type) = @_;
+
+	my %ioinfo = $sar->getReportType('io');
+print "IO: read => $ioinfo{'rtps'}, write => $ioinfo{'wtps'}, block read => $ioinfo{'bread'}, block write => $ioinfo{'bwrtn'}\n" if ($Config{'GENERAL'}{'DEBUG'});
+	if (exists $CMD{'io'}) {
+		if (!$ioinfo{'rtps'} && !$ioinfo{'wtps'}) {
+			&insertIntDataNull($host, 'io');
+		} else {
+			&insertIntData($host, 'io', $ioinfo{'rtps'}, $ioinfo{'wtps'}, 0)
+		}
+		&send_warning($host, $type, $type, "I/O usage", $ioinfo{'rtps'}, $ioinfo{'wtps'});
+		if (!$ioinfo{'bread'} && !$ioinfo{'bwrtn'}) {
+			&insertIntDataNull($host, 'bio');
+		} else {
+			&insertIntData($host, 'bio', $ioinfo{'bread'}, $ioinfo{'bwrtn'}, 0);
+		}
+		&send_warning($host, $type, $type, "I/O block usage", $ioinfo{'bread'}, $ioinfo{'bwrtn'});
+	}
+
+}
+
+####
+# Function used to return the context switches usage
+####
+sub mon_cswch
+{
+	my ($sar, $host, $type) = @_;
+
+	my %info = $sar->getReportType('cswch');
+	# No file in use percentage, so compute if
+print "CSWCH: Context Switch => $info{'cswch'}/s\n" if ($Config{'GENERAL'}{'DEBUG'});
+	if (exists $CMD{'cswch'}) {
+		if (!$info{'cswch'}) {
+			&insertIntDataNull($host, $type);
+		} else {
+			&insertIntData($host, $type, $info{'cswch'}, 0, 0);
+		}
+		&send_warning($host, $type, $type, "Context Switches usage", $info{'cswch'});
+	}
+}
+
+####
+# Function used to return the percentage of open file
+# regarding file-max setting.
+####
+sub mon_file
+{
+        my ($sar, $host, $type) = @_;
+
+        my %fileinfo = $sar->getReportType('file');
+
+        my $target = 'file';
+        if (!exists $fileinfo{'%file-sz'}) {
+		if (!exists $fileinfo{'file-sz'}) {
+			$fileinfo{'file-sz'} = $fileinfo{'file-nr'} || 0;
+		}
+                $fileinfo{'%file-sz'} = $fileinfo{'file-sz'};
+                $target = 'filen';
+print "FILE: opened => ", $fileinfo{'%file-sz'}, "\n" if ($Config{'GENERAL'}{'DEBUG'});
+        } else {
+print "FILE: used => ", $fileinfo{'%file-sz'}, "%\n" if ($Config{'GENERAL'}{'DEBUG'});
+	}
+
+        if (exists $CMD{'file'}) {
+                if (!$fileinfo{'%file-sz'}) {
+                        &insertIntDataNull($host, $target);
+                } else {
+                        &insertIntData($host, $target, $fileinfo{'%file-sz'}, 0, 0);
+                }
+                &send_warning($host, $type, $type, "Open file usage", $fileinfo{'%file-sz'});
+        }
+}
+
+####
+# Function used to return the interrupts usage
+####
+sub mon_intr
+{
+	my ($sar, $host, $type) = @_;
+
+	my %info = $sar->getReportType('intr');
+	# No file in use percentage, so compute if
+print "INTR: Interrupts => $info{'sum'}{'intr'}/s\n" if ($Config{'GENERAL'}{'DEBUG'});
+	if (exists $CMD{'intr'}) {
+		if (!$info{'sum'}{'intr'}) {
+			&insertIntDataNull($host, $type);
+		} else {
+			&insertIntData($host, $type, $info{'sum'}{'intr'}, 0, 0);
+		}
+		&send_warning($host, $type, $type, "Interrupts usage", $info{'sum'}{'intr'});
+	}
+}
+
+
+####
+# Function used to return the number of error received and
+# transmitted on a given network interface. The interface
+# must be specified with command line option -i
+####
+sub mon_net_error
+{
+	my ($sar, $host, $type, @ifaces) = @_;
+
+	my %errinfo = $sar->getReportType('err');
+	foreach my $name (keys %errinfo) {
+		next if ( ($#ifaces >= 0) && !grep(/^$name$/, @ifaces) );
+print "ERR: $name => errin: $errinfo{$name}{rxerr}, errout: $errinfo{$name}{txerr}, dropin: $errinfo{$name}{rxdrop}, dropout: $errinfo{$name}{txdrop}, coll: $errinfo{$name}{coll}\n" if ($Config{'GENERAL'}{'DEBUG'});
+		my $target = 'err_' . $name;
+		if (exists $CMD{'err'}) {
+			if (!$errinfo{$name}{rxerr} && !$errinfo{$name}{txerr}) {
+				&insertIntDataNull($host, $target);
+			} else {
+				&insertIntData($host, $target, $errinfo{$name}{rxerr}, $errinfo{$name}{txerr}, 0);
+			}
+			&send_warning($host, $target, $type, "Bad packet on $name", $errinfo{$name}{rxerr}, $errinfo{$name}{txerr});
+			$target = 'drop_' . $name;
+			if (!$errinfo{$name}{rxdrop} && !$errinfo{$name}{txdrop}) {
+				&insertIntDataNull($host, $target);
+			} else {
+				&insertIntData($host, $target, $errinfo{$name}{rxdrop}, $errinfo{$name}{txdrop}, 0);
+			}
+			&send_warning($host, $target, $type, "Dropped packet on $name", $errinfo{$name}{rxdrop}, $errinfo{$name}{txdrop});
+			$target = 'coll_' . $name;
+			if (!$errinfo{$name}{coll}) {
+				&insertIntDataNull($host, $target);
+			} else {
+				&insertIntData($host, $target, $errinfo{$name}{coll}, 0, 0);
+			}
+			&send_warning($host, $target, $type, "Collision packet on $name", $errinfo{$name}{coll});
+		}
+	}
+}
+
+####
+# Function used to return the number of process created per second
+####
+sub mon_process_created
+{
+	my ($sar, $host, $type) = @_;
+
+	my %process = $sar->getReportType('pcrea');
+print "PROCESS/SEC: $process{proc}/s\n" if ($Config{'GENERAL'}{'DEBUG'});
+	if (exists $CMD{'pcrea'}) {
+		if (!$process{proc}) {
+			&insertIntDataNull($host, 'pcrea');
+		} else {
+			&insertIntData($host, 'pcrea', $process{proc}, 0, 0);
+		}
+	}
+	&send_warning($host, $type, $type, "Process creation", $process{proc});
+}
+
+####
+# Function used to return the paging statistics.
+# It return the number of blocks paged in from disk per second
+# and the number of blocks paged out to disk per second.
+####
+sub mon_paging
+{
+	my ($sar, $host, $type) = @_;
+
+	my %pageinfo = $sar->getReportType('page');
+print "PAGIN: page in => $pageinfo{pgpgin}, page out => $pageinfo{pgpgout}\n" if ($Config{'GENERAL'}{'DEBUG'});
+	if (exists $CMD{'page'}) {
+		if (!$pageinfo{pgpgin} && !$pageinfo{pgpgout}) {
+			&insertIntDataNull($host, 'page');
+		} else {
+			&insertIntData($host, 'page', $pageinfo{pgpgin}, $pageinfo{pgpgout}, 0);
+		}
+		&send_warning($host, $type, $type, "I/O page usage", $pageinfo{pgpgin}, $pageinfo{pgpgout});
+		if (exists $pageinfo{'%vmeff'}) {
+print "VMEMEFF: \%vmeff => ", $pageinfo{'%vmeff'}, "\n" if ($Config{'GENERAL'}{'DEBUG'});
+			if (!$pageinfo{'%vmeff'}) {
+				&insertIntDataNull($host, 'vmeff');
+			} else {
+				&insertIntData($host, 'vmeff', $pageinfo{'%vmeff'}, 0, 0);
+			}
+		}
+	}
+
+}
+
+####
+# Function used to return the swapping statistics.
+# It return the number of swap pages the system brought in per second
+# and the number of swap pages the system brought out per second.
+####
+sub mon_page_swap
+{
+	my ($sar, $host, $type) = @_;
+
+	my %pswapinfo = $sar->getReportType('pswap');
+print "PAGE SWAP: page in => $pswapinfo{pswpin}, page out => $pswapinfo{pswpout}\n" if ($Config{'GENERAL'}{'DEBUG'});
+	if (exists $CMD{'pswap'}) {
+		if (!$pswapinfo{'pswpin'} && !$pswapinfo{'pswpout'}) {
+			&insertIntDataNull($host, 'pswap');
+		} else {
+			&insertIntData($host, 'pswap', $pswapinfo{'pswpin'}, $pswapinfo{'pswpout'}, 0);
+		}
+		&send_warning($host, $type, $type, "Swap page usage", $pswapinfo{'pswpin'}, $pswapinfo{'pswpout'});
+	}
+}
+
+
+####
+# Function used to return the hard drive temperature using hddtemp.
+####
+sub mon_hddtemp
+{
+	my ($sar, $host, $type, $device) = @_;
+
+	my $temperature = `LC_ALL=C $Config{'GENERAL'}{'HDDTEMP_BIN'} -n $device 2>/dev/null`;
+	chomp($temperature);
+	$temperature ||= 0;
+print "HDDTEMP: $device => $temperature\n" if ($Config{'GENERAL'}{'DEBUG'});
+	my $target = 'hddtemp_' . $device;
+	$target =~ s/\//_/g;
+	if ($device) {
+		if (!$temperature) {
+			&insertIntDataNull($host, $target);
+		} else {
+			&insertIntData($host, $target, $temperature, 0, 0);
+		}
+		&send_warning($host, $type, $type, "Hard drive temperature of $device", $temperature);
+	}
+}
+
+
+####
+# Function used to return the temperature records return by sensors.
+####
+sub mon_sensors
+{
+	my ($sar, $host, $type, $pattern) = @_;
+
+	my @temperature = ();
+	open(SENSORS, "$Config{'GENERAL'}{'SENSORS_BIN'} |");
+	while (my $l = <SENSORS> ) {
+		chomp($l);
+		if ($l =~ /($pattern)[^:]*:\s+([^\s]+)/) {
+			my $tmp = $2;
+			$tmp =~ s/[^0-9\-\.]//g;
+			$tmp = int($tmp);
+			if ($tmp) {
+				push(@temperature, $tmp);
+				last if ($#temperature == 1);
+			}
+		}
+	}
+	close(SENSORS);
+	push(@temperature, 0) while ($#temperature <= 1);
+	if ($Config{'GENERAL'}{'DEBUG'}) {
+		for (my $i = 0; $i <= $#temperature; $i++) {
+print "SENSORS: $pattern-$i => $temperature[$i]\n";
+		}
+	}
+	my $target = 'sensors_' . $pattern;
+	if (exists $CMD{"$target"}) {
+		$target =~ s/[^a-z0-9\-]+/_/ig;
+		if (!$temperature[0]) {
+			&insertIntDataNull($host, $target);
+		} else {
+			&insertIntData($host, $target, $temperature[0] || 0, $temperature[1] || 0, 0);
+		}
+		if ($pattern !~ /\bfan\d*\b/i) {
+			&send_warning($host, $type, $type, $pattern, @temperature);
+		} else {
+			&send_warning($host, $type, $type, $pattern, $temperature[0]);
+		}
+	}
+}
+
+####
+# Function used to return the tcp connections usage
+####
+sub mon_tcp
+{
+	my ($sar, $host, $type) = @_;
+
+	my %info = $sar->getReportType('tcp');
+
+print "TCP: Active => $info{'active'}/s, Passive => $info{'passive'}/s, Received segment => $info{'iseg'}/s, Sent segment => $info{'oseg'}/s\n" if ($Config{'GENERAL'}{'DEBUG'});
+	if (exists $CMD{'tcp'}) {
+		if (!$info{'active'} && !$info{'passive'}) {
+			&insertIntDataNull($host, $type);
+		} else {
+			&insertIntData($host, $type, $info{'active'}, $info{'passive'}, 0);
+		}
+		if (!$info{'iseg'} && !$info{'oseg'}) {
+			&insertIntDataNull($host, $type . 'seg');
+		} else {
+			&insertIntData($host, $type . 'seg', $info{'iseg'}, $info{'oseg'}, 0);
+		}
+	}
+}
+
+####
+# Function used to monitor user customized command
+####
+sub mon_customized
+{
+	my ($host, $type, $program, $maxthres, $minthres, $delaythres) = @_;
+
+	my ($ret1, $ret2, $ret3) = split(/\s/, `LC_ALL=C $program`);
+	chomp($ret3);
+
+print "PLUGIN $type: returned 1 => $ret1, returned 2 => $ret2, returned 3 => $ret3\n" if ($Config{'GENERAL'}{'DEBUG'});
+
+	if (!$ret1 && !$ret2 && !$ret3) {
+		&insertIntDataNull($host, $type);
+	} else {
+		&insertIntData($host, $type, $ret1 || 0, $ret2 || 0, $ret3 || 0);
+	}
+	&send_warning($host, $type, $type, "Plugin $type", $ret1, $ret2, $ret3);
+}
+
+####
+# Function used to return command line usage 
+####
+sub usage
+{
+	print qq{
+Usage: sysusage [-c conf_file] [-h|--help] [-v]
+
+	-c conf_file : Path to configuration file. Default: /usr/local/sysusage/etc/sysusage.cfg
+	-d|--debug   : Verbose output without writing anything
+	-h|--help    : Output this message and exit
+	-v           : Display sysusage version
+
+};
+# Called internaly by sysusage so remove this from usage 
+#	-r hostname  : Run in remote mode on the given host. Should be the same hostname than in
+#		       the [REMOTE] section of the configuration file. 
+	exit(1);
+}
+
+####
+# Function used to check command line argument and configuration
+####
+sub check_args
+{
+        GetOptions(
+                "c=s"   => \$CONF_FILE,
+                "d!"    => \$VERBOSE,
+                "debug!"    => \$VERBOSE,
+                "h!"    => \$HELP,
+		"help!" => \$HELP,
+		"r=s" => \$RUN_REMOTELY,
+		"v!"    => \$SHOWVER
+        ) || &usage();
+        &usage() if ($HELP);
+
+	if ($SHOWVER) {
+		print "Sysusage v$VERSION\n";
+		exit 0;
+	}
+
+	# Check configuration
+	if (! -f $CONF_FILE) {
+		print "ERROR: Configuration file $CONF_FILE doesn't exists.\n";
+		&usage();
+	}
+
+}
+
+sub insertIntDataNull
+{
+        my ($host, $target) = @_;
+
+        &debug("insertIntDataNull($host): update $Config{'GENERAL'}{'DATA_DIR'}/$host/$target N:0:0:0\n");
+
+	if ($RUN_REMOTELY) {
+		print "$host\t$target\tN:0:0:0\n";
+	} else {
+		if (!-e "$Config{'GENERAL'}{'DATA_DIR'}/$host/$target") {
+			&createRRD($host, $target);
+		}
+		if (!$Config{'GENERAL'}{'DEBUG'}) {
+			RRDs::update("$Config{'GENERAL'}{'DATA_DIR'}/$host/$target", "N:0:0:0");
+			my $e = RRDs::error();
+			if ($e) {
+				unlink("$Config{'GENERAL'}{'PID_DIR'}/sysusage.pid");
+				die "ERROR: Cannot update $Config{'GENERAL'}{'DATA_DIR'}/$host/$target: $e\n";
+			}
+		}
+	}
+
+        return(1);
+}
+
+sub insertIntData
+{
+        my ($host, $target, $in, $out, $other) = @_;
+
+	$in ||= 0;
+	$out ||= 0;
+	$other ||= 0;
+        &debug("insertIntData($host): update $Config{'GENERAL'}{'DATA_DIR'}/$host/$target N:$in:$out:$other\n");
+
+	if ($RUN_REMOTELY) {
+		print "$host\t$target\tN:$in:$out:$other\n";
+	} else {
+		if (!-e "$Config{'GENERAL'}{'DATA_DIR'}/$host/$target") {
+			&createRRD($host, $target);
+		}
+		if (!$Config{'GENERAL'}{'DEBUG'}) {
+			RRDs::update("$Config{'GENERAL'}{'DATA_DIR'}/$host/$target", "N:$in:$out:$other");
+			my $e = RRDs::error();
+			if ($e) {
+				unlink("$Config{'GENERAL'}{'PID_DIR'}/sysusage.pid");
+				die "ERROR: Cannot update $Config{'GENERAL'}{'DATA_DIR'}/$host/$target: $e\n";
+			}
+		}
+	}
+        return(1);
+}
+
+sub process_remote_data
+{
+        my (@data) = @_;
+
+	foreach my $line (@data) {
+		chomp($line);
+		if ($Config{'GENERAL'}{'DEBUG'}) {
+			print "$line\n";
+		}
+		if ($line !~ /^.*\t.*\t.*$/) {
+			print "REMOTE ERROR: $line\n";
+			next;
+		}
+		my ($host,$target,$vals) = split(/\t/, $line, 3);
+		if ($target =~ /^kernel$/) {
+			unless(open(KFILE, ">$Config{'GENERAL'}{'DATA_DIR'}/$host/kernel.txt")) {
+				unlink("$Config{'GENERAL'}{'PID_DIR'}/sysusage.pid");
+				die "ERROR: Can't write to file $Config{'GENERAL'}{'DATA_DIR'}/$host/kernel.txt\n";
+			}
+			print KFILE "$vals\n";
+			close(KFILE);
+			next;
+		} elsif ($target =~ /^(datetime|uptime|sarversion)$/) {
+			unless(open(KFILE, ">>$Config{'GENERAL'}{'DATA_DIR'}/$host/kernel.txt")) {
+				unlink("$Config{'GENERAL'}{'PID_DIR'}/sysusage.pid");
+				die "ERROR: Can't write to file $Config{'GENERAL'}{'DATA_DIR'}/$host/kernel.txt\n";
+			}
+			print KFILE "$vals\n";
+			close(KFILE);
+			next;
+		}
+		if ($vals =~ /ALARM_PROG/) {
+			# This is an alarm message from the remote host, just call the alarm program
+			$vals =~ s/(NAGIOS|UPPER|LOWER)_ALARM_PROG/$Config{'ALARM'}{'ALARM_PROG'}/;
+			system($vals) if (!$Config{'GENERAL'}{'DEBUG'});
+		} elsif ($vals eq "N:0:0:0") {
+			&insertIntDataNull($host,$target);
+		} else {
+			my ($n, $in, $out, $other) = split(/:/, $vals);
+			&insertIntData($host, $target, $in, $out, $other);
+		}
+	}
+
+        return(1);
+}
+
+sub createRRD
+{
+        my ($host, $target) = @_;
+
+	# We store 3 values 
+        &debug("createRRD($host): Creating RRD database file $Config{'GENERAL'}{'DATA_DIR'}/$host/$target\n");
+
+	return 1 if ($Config{'GENERAL'}{'DEBUG'});
+
+        my @args = ("$Config{'GENERAL'}{'DATA_DIR'}/$host/$target", '-s', $Config{'GENERAL'}{'INTERVAL'},
+                "DS:A:GAUGE:$HEARTBEAT:U:U",
+                "DS:B:GAUGE:$HEARTBEAT:U:U",
+                "DS:C:GAUGE:$HEARTBEAT:U:U",
+		# keeps 1 samples per INTERVAL on 24 hours
+                "RRA:AVERAGE:0.5:1:" . int(86400/$Config{'GENERAL'}{'INTERVAL'}),
+		# Keep 2016 5 minutes samples -> 7 days
+                "RRA:AVERAGE:0.5:" . int(300/$Config{'GENERAL'}{'INTERVAL'})  . ":2016",
+		# Keep 1488 30 minutes samples -> 1 month
+                "RRA:AVERAGE:0.5:" . int(1800/$Config{'GENERAL'}{'INTERVAL'})  . ":1488",
+		# Keep 365 1 hour samples -> 1 year
+                "RRA:AVERAGE:0.5:" . int(3600/$Config{'GENERAL'}{'INTERVAL'}) . ":8760",
+                "RRA:MAX:0.5:1:" . int(86400/$Config{'GENERAL'}{'INTERVAL'}),
+                "RRA:MAX:0.5:" . int(300/$Config{'GENERAL'}{'INTERVAL'})   . ":2016",
+                "RRA:MAX:0.5:" . int(1800/$Config{'GENERAL'}{'INTERVAL'})   . ":1488",
+                "RRA:MAX:0.5:" .  int(3600/$Config{'GENERAL'}{'INTERVAL'}) . ":8760"
+        );
+        RRDs::create(@args);
+        my $e = RRDs::error();
+	if ($e) {
+		unlink("$Config{'GENERAL'}{'PID_DIR'}/sysusage.pid");
+		die "ERROR: Cannot create rrdtool database $Config{'GENERAL'}{'DATA_DIR'}/$host/$target: $e\n";
+	}
+
+}
+
+sub debug
+{
+	my ($str) = @_;
+
+	if ($Config{'GENERAL'}{'DEBUG'}) {
+		print $str;
+	}
+}
+
+sub check_running
+{
+	if (-e "$Config{'GENERAL'}{'PID_DIR'}/sysusage.pid") {
+		my @ret = `ps -ef | grep sysusage | grep -v "sysusagegraph" | grep perl | grep -v grep`;
+		if ($#ret > 0) {
+			print qq{
+An other instance of sysusage is running. Please wait...
+exiting...
+} if ($Config{'GENERAL'}{'DEBUG'});
+			exit 0;
+		} else {
+			print "Found $Config{'GENERAL'}{'PID_DIR'}/sysusage.pid and no instance of sysusage is running.\nRemoving it...\n" if ($Config{'GENERAL'}{'DEBUG'});
+			unlink("$Config{'GENERAL'}{'PID_DIR'}/sysusage.pid");
+		}
+	}
+	open(PIDF, ">$Config{'GENERAL'}{'PID_DIR'}/sysusage.pid") or die "Error: can't write into $Config{'GENERAL'}{'PID_DIR'}/sysusage.pid\n";
+	print PIDF "$$";
+	close(PIDF);
+}
+
+
+sub send_warning
+{
+	my ($host, $target, $type, $title, @vals) = @_;
+
+	return if (!$Config{'ALARM'}{'WARN_MODE'});
+
+	my $alertsent = 0;
+
+	# Some time range may not send alarms
+	my ($sec , $min, $hour, @other) = localtime(time);
+	$min = "0$min" if ($min < 10);
+	$hour = "0$hour" if ($hour < 10);
+	for (my $i = 0; $i <= $#{$Config{'ALARM'}{'SKIP_BEGIN'}}; $i++) {
+		if ( $Config{'ALARM'}{'SKIP_BEGIN'}[$i] <= $Config{'ALARM'}{'SKIP_END'}[$i] ) {
+			return if ( ("$hour$min" >= $Config{'ALARM'}{'SKIP_BEGIN'}[$i]) && ("$hour$min" <= $Config{'ALARM'}{'SKIP_END'}[$i]) );
+		} elsif ( $Config{'ALARM'}{'SKIP_BEGIN'}[$i] > $Config{'ALARM'}{'SKIP_END'}[$i] ) {
+			return if ( ("$hour$min" >= $Config{'ALARM'}{'SKIP_BEGIN'}[$i]) && ("$hour$min" < 2400) || ("$hour$min" <= $Config{'ALARM'}{'SKIP_END'}[$i]) && ("$hour$min" > 0));
+		}
+	}
+	my $nagios_cmd = '';
+	if ($Config{'ALARM'}{'NAGIOS'}) {
+		$nagios_cmd = "-n $Config{'ALARM'}{'NAGIOS'}";
+		if ($host) {
+			$nagios_cmd .= ' -a "' . $host . '"';
+		}
+	}
+	my $smtp_cmd = '';
+	if ($Config{'ALARM'}{'SMTP'}) {
+		$smtp_cmd = "-s $Config{'ALARM'}{'SMTP'} -f $Config{'ALARM'}{'FROM'} -d $Config{'ALARM'}{'TO'}";
+		if ($Config{'ALARM'}{'URL'}) {
+			$smtp_cmd .= ' -u "' . $Config{'ALARM'}{'URL'} . '"';
+		}
+		if ($host) {
+			$smtp_cmd .= ' -a "' . $host . '"';
+		}
+	}
+	if (exists $CMD{$type}) {
+		my $docount = 0;
+		if (defined $CMD{$type}[0] && ($CMD{$type}[0] ne '') && ($CMD{$type}[0] > 0)) {
+			foreach my $v (@vals) {
+				if ($v >= $CMD{$type}[0]) {
+					if (!&check_threshold_count($host, $target, $type, $CMD{$type}[2])) {
+print "Wait for max threshold count $CMD{$type}[2] before calling alarm program.\n" if ($Config{'GENERAL'}{'DEBUG'});
+						$docount++;
+						last;
+					} else {
+						# Inform remote server that we have an alarm here
+						if ($RUN_REMOTELY) {
+							print "$host\t$target\tUPPER_ALARM_PROG -t \"$title\" -c $v -v $CMD{$type}[0] -l $Config{'ALARM'}{'UPPER_LEVEL'} $smtp_cmd -r $target $nagios_cmd\n";
+						} else {
+							# Send alarm
+print "$Config{'ALARM'}{'ALARM_PROG'} -t \"$title\" -c $v -v $CMD{$type}[0] -l $Config{'ALARM'}{'UPPER_LEVEL'} $smtp_cmd -r $target $nagios_cmd &\n" if ($Config{'GENERAL'}{'DEBUG'});
+							system("$Config{'ALARM'}{'ALARM_PROG'} -t \"$title\" -c $v -v $CMD{$type}[0] -l $Config{'ALARM'}{'UPPER_LEVEL'} $smtp_cmd -r $target $nagios_cmd &") if (!$Config{'GENERAL'}{'DEBUG'});
+						}
+						$docount = 0;
+						$alertsent = 1;
+						last;
+					}
+				}
+			}
+		}
+		if (defined $CMD{$type}[1] && ($CMD{$type}[1] ne '')) {
+			foreach my $v (@vals) {
+				if ($v <= $CMD{$type}[1]) {
+					if (!&check_threshold_count($host, $target, $type, $CMD{$type}[3])) {
+						$docount++;
+print "Wait for max threshold count $CMD{$type}[2] before calling alarm program.\n" if ($Config{'GENERAL'}{'DEBUG'});
+						last;
+					}
+					# Inform remote server that we have an alarm here
+					if ($RUN_REMOTELY) {
+						print "$host\t$target\tLOWER_ALARM_PROG -t \"$title\" -c $v -v $CMD{$type}[1] -l $Config{'ALARM'}{'LOWER_LEVEL'} $smtp_cmd -r $target $nagios_cmd\n";
+					} else {
+						# Send alarm
+print "$Config{'ALARM'}{'ALARM_PROG'} -t \"$title\" -c $v -v $CMD{$type}[1] -l $Config{'ALARM'}{'LOWER_LEVEL'} $smtp_cmd -r $target $nagios_cmd &\n" if ($Config{'GENERAL'}{'DEBUG'});
+						system("$Config{'ALARM'}{'ALARM_PROG'} -t \"$title\" -c $v -v $CMD{$type}[1] -l $Config{'ALARM'}{'LOWER_LEVEL'} $smtp_cmd -r $target $nagios_cmd &") if (!$Config{'GENERAL'}{'DEBUG'});
+					}
+					$alertsent = 1;
+					$docount = 0;
+					last;
+				}
+			}
+		}
+		if ($nagios_cmd && !$alertsent) {
+print "$Config{'ALARM'}{'ALARM_PROG'} -t \"OK - Running...\" -l 0 -r $target $nagios_cmd &\n" if ($Config{'GENERAL'}{'DEBUG'});
+			# Inform remote server that we have an alarm here
+			if ($RUN_REMOTELY) {
+				print "$host\t$target\tNAGIOS_ALARM_PROG -t \"OK - Running...\" -l 0 -r $target $nagios_cmd\n";
+			} else {
+				# Send alarm
+				system("$Config{'ALARM'}{'ALARM_PROG'} -t \"OK - Running...\" -l 0 -r $target $nagios_cmd &") if (!$Config{'GENERAL'}{'DEBUG'});
+			}
+		}
+		if (!$docount) {
+			if (-e "$Config{'GENERAL'}{'DATA_DIR'}/$host/$target.cnt") {
+				unlink("$Config{'GENERAL'}{'DATA_DIR'}/$host/$target.cnt");
+			}
+		}
+	}
+}
+
+# Return 1 if the threshold delay count is reached or on error so that an alarm can be sent
+sub check_threshold_count
+{
+	my ($host, $target, $type, $max) = @_;
+
+	return 1 if ($max <= 1);
+
+	my $cur = 0;
+	if (!-e "$Config{'GENERAL'}{'DATA_DIR'}/$host/$target.cnt") {
+		$cur++;
+		if (open(OUT, ">$Config{'GENERAL'}{'DATA_DIR'}/$host/$target.cnt")) {
+			print OUT $cur;
+			close(OUT);
+		} else {
+			print STDERR "ERROR: can't write to file $Config{'GENERAL'}{'DATA_DIR'}/$host/$target.cnt\n";
+			return 1;
+		}
+	} else {
+		if (open(IN, "$Config{'GENERAL'}{'DATA_DIR'}/$host/$target.cnt")) {
+			$cur = <IN>;
+			close(IN);
+			chomp($cur);
+			$cur++;
+			if ($cur >= $max) {
+				unlink("$Config{'GENERAL'}{'DATA_DIR'}/$host/$target.cnt");
+				return 1;
+			}
+			if (open(OUT, ">$Config{'GENERAL'}{'DATA_DIR'}/$host/$target.cnt")) {
+				print OUT $cur;
+				close(OUT);
+			} else {
+				print STDERR "ERROR: can't write to file $Config{'GENERAL'}{'DATA_DIR'}/$host/$target.cnt\n";
+				return 1;
+			}
+		} else {
+			print STDERR "ERROR: can't read file $Config{'GENERAL'}{'DATA_DIR'}/$host/$target.cnt\n";
+			return 1;
+		}
+	}
+	return 0;
+}
+
+####
+# Function used to load sysusage configuration
+####
+sub read_config
+{
+	my $part = '';
+	my $line = 0;
+
+	unless(open(CONF, "$CONF_FILE")) {
+		die "ERROR: can't open file $CONF_FILE, $!\n";
+	}
+	while (my $l = <CONF>) {
+		chomp($l);
+		$l =~ s///;
+		$line++;
+		# Skip empty line and comments
+		next if (!$l || ($l =~ /^[\s\t]*#/));
+		if ($l =~ /\[[\s\t]*GENERAL[\s\t]*\]/i) {
+			$part = 'GENERAL';
+			next;
+		} elsif ($l =~ /\[[\s\t]*ALARM[\s\t]*\]/i) {
+			$part = 'ALARM';
+			next;
+		} elsif ($l =~ /\[[\s\t]*MONITOR[\s\t]*\]/i) {
+			$part = 'MONITOR';
+			next;
+		} elsif ($l =~ /\[[\s\t]*PLUGIN[\t\s]+([^\s\t]*)[\s\t]*\]/i) {
+			$part = 'PLUGIN ' . $1;
+			next;
+		} elsif ($l =~ /\[[\s\t]*REMOTE[\t\s]*([^\s\t]*)[\s\t]*\]/i) {
+			$part = 'REMOTE ' . $1;
+			next;
+		}
+		if ($part eq 'MONITOR') {
+			# type:ThresholdMax(delaycount):ThresholdMin(delaycount)
+			# or
+			# type:value:ThresholdMax(delaycount):ThresholdMin(delaycount)
+			my ($type, $thres_max, $thres_min, @other) = split(/:/, $l);
+			if ($type eq 'queue') {
+				$type = "queue_$thres_max";
+				$thres_max = $thres_min;
+				$thres_min = '';
+			} elsif ($type eq 'proc') {
+				my $process = $thres_max;
+				$process =~ s/[^a-z0-9]+//i;
+				$type = "proc_$process";
+				$PROCESS{$type} = $thres_max;
+				$thres_max = $thres_min;
+				$thres_min = $other[0];
+			} elsif ($type eq 'tproc') {
+				my $process = $thres_max;
+				$process =~ s/[^a-z0-9]+//i;
+				$type = "tproc_$process";
+				$TPROCESS{$type} = $thres_max;
+				$thres_max = $thres_min;
+				$thres_min = $other[0];
+			} elsif ($type eq 'dev') {
+				# Remove device alias
+				$thres_max =~ s/\s*\(.*\).*//;
+				$type = "dev_$thres_max";
+				if ($#other != 1) {
+					print STDERR "WARNING: see documentation for device workload configuration syntax, disabling...\n" if ($#other > -1);
+				} else {
+					$WORKINF{$type}{rpm} = $thres_min;
+					$WORKINF{$type}{raid} = $other[0];
+					$WORKINF{$type}{ndisk} = $other[1];
+				}
+			} elsif ($type eq 'hddtemp') {
+				$type = "hddtemp_$thres_max";
+				$thres_max = $thres_min;
+				$thres_min = $other[0];
+			} elsif ($type eq 'sensors') {
+				$type = "sensors_$thres_max";
+				$thres_max = $thres_min;
+				$thres_min = $other[0];
+			} elsif ($type eq 'mem') {
+				my $delay = 0;
+				if ($thres_max =~ s/\((\d+)\)//) {
+					$delay = $1;
+				}
+				# Warn backward compatibility with
+				# threshold max for memory, now in percent
+				if ($thres_max && ($thres_max > 100)) {
+					print STDERR "WARNING: threshold memory must now be a percentage, setting it to 99%\n";
+					$thres_max = 99;
+				}
+				$thres_max .= "($delay)" if ($delay);
+			}
+			my $maxdelaycount = 0;
+			my $mindelaycount = 0;
+			if ($thres_max =~ s/\((\d+)\)//) {
+				$maxdelaycount = $1;
+			}
+			if ($thres_min =~ s/\((\d+)\)//) {
+				$mindelaycount = $1;
+			}
+			push(@{$CMD{$type}}, $thres_max, $thres_min, $maxdelaycount, $mindelaycount);
+		} elsif ($part =~ /PLUGIN (.*)/) {
+			my $name = lc($1);
+			my ($var, $val) = split(/[\s\t]*[:=][\s\t]*/, $l, 2);
+			$var =~ s/[^a-z0-9]+//i;
+			$name =~ s/[^a-z0-9\_\-]+//i;
+			$PLUGIN{"\L$name\E"}{"\L$var\E"} = $val;
+		} elsif ($part =~ /REMOTE (.*)/) {
+			my $name = lc($1);
+			my ($var, $val) = split(/[\s\t]*[:=][\s\t]*/, $l, 2);
+			$var =~ s/[^a-z0-9\_]+//i;
+			$name =~ s/[^a-z0-9\_\-\.]+//i;
+			$REMOTEHOST{"\L$name\E"}{"\L$var\E"} = $val;
+		} else {
+			if (!$part) {
+				die "ERROR: Invalid configuration file syntax at line $line, please read documentation\n";
+			}
+			my ($var, $val) = split(/[\s\t]*[:=][\s\t]*/, $l, 2);
+			$Config{$part}{"\U$var\E"} = $val; 
+		}
+	}
+	close(CONF);
+
+	if (! -d $Config{'GENERAL'}{'DATA_DIR'}) {
+		unless(mkdir($Config{'GENERAL'}{'DATA_DIR'}, 0755)) {
+			print "ERROR: RRD database directory $Config{'GENERAL'}{'DATA_DIR'} doesn't exists.\n";
+			&usage();
+		}
+	}
+	if (!-x $Config{'GENERAL'}{'SAR_BIN'}) {
+		print "ERROR: sar command not found at $Config{'GENERAL'}{'SAR_BIN'}\n";
+		&usage();
+	} else {
+		if ($Config{'GENERAL'}{'SAR_BIN'}) {
+			$SYSSTAT_VERSION = `$Config{'GENERAL'}{'SAR_BIN'} -V 2>&1 | grep "sysstat version"`;
+		} else {
+			$SYSSTAT_VERSION = `sar -V 2>&1 | grep "sysstat version"`;
+		}
+		$SYSSTAT_VERSION ||= 'sysstat';
+		chomp($SYSSTAT_VERSION);
+	}
+	if ($Config{'GENERAL'}{'HDDTEMP_BIN'} && !-x $Config{'GENERAL'}{'HDDTEMP_BIN'}) {
+		print "ERROR: hddtemp command not found at $Config{'GENERAL'}{'HDDTEMP_BIN'}\n";
+		&usage();
+	}
+	if ($Config{'ALARM'}{'WARN_MODE'}) {
+		if (!$Config{'ALARM'}{'NAGIOS'} && (!$Config{'ALARM'}{'FROM'} || !$Config{'ALARM'}{'TO'} || !$Config{'ALARM'}{'SMTP'})) {
+			print "ERROR: you must provide an SMTP server, a sender and a recipient address to send alert message\n";
+			&usage();
+		}
+		if (!-x $Config{'ALARM'}{'ALARM_PROG'}) {
+			print "ERROR: Can not execute $Config{'ALARM'}{'ALARM_PROG'}\n";
+			&usage();
+		}
+		if ($Config{'ALARM'}{'NAGIOS'} && !-x $Config{'ALARM'}{'NAGIOS'}) {
+			print "ERROR: Can not execute $Config{'ALARM'}{'NAGIOS'}\n";
+			&usage();
+		}
+		$Config{'ALARM'}{'TO'} =~ s/[\s\t]+//g;
+	}
+	if (!$Config{'ALARM'}{'UPPER_LEVEL'}) {
+		$Config{'ALARM'}{'UPPER_LEVEL'} = 1;
+	}
+	if (!$Config{'ALARM'}{'LOWER_LEVEL'}) {
+		$Config{'ALARM'}{'LOWER_LEVEL'} = 2;
+	}
+
+	if ($VERBOSE) {
+		$Config{'GENERAL'}{'DEBUG'} = 1;
+	}
+
+	if ($Config{'GENERAL'}{'SKIP'}) {
+		my $tmp = $Config{'GENERAL'}{'SKIP'} || '';
+		delete $Config{'GENERAL'}{'SKIP'};
+		my @timerange = split(/[\s\t]+/, $tmp);
+		foreach $tmp (@timerange) {
+			next if (!$tmp);
+			if ($tmp =~ m#(\d{2}):(\d{2})/(\d{2}):(\d{2})#) {
+				push(@{$Config{'GENERAL'}{'SKIP_BEGIN'}}, "$1$2");
+				push(@{$Config{'GENERAL'}{'SKIP_END'}}, "$3$4");
+			} else {
+				print "ERROR: Bad time range: $tmp\n";
+				print "Format must be: HH:MM/HH:MM\n";
+				&usage();
+			}
+		}
+	}
+
+	if ($Config{'ALARM'}{'SKIP'}) {
+		my $tmp = $Config{'ALARM'}{'SKIP'} || '';
+		delete $Config{'ALARM'}{'SKIP'};
+		my @timerange = split(/[\s\t]+/, $tmp);
+		foreach $tmp (@timerange) {
+			next if (!$tmp);
+			if ($tmp =~ m#(\d{2}):(\d{2})/(\d{2}):(\d{2})#) {
+				push(@{$Config{'ALARM'}{'SKIP_BEGIN'}}, "$1$2");
+				push(@{$Config{'ALARM'}{'SKIP_END'}}, "$3$4");
+			} else {
+				print "ERROR: Bad time range: $tmp\n";
+				print "Format must be: HH:MM/HH:MM\n";
+				&usage();
+			}
+		}
+	}
+	if ( ($Config{'GENERAL'}{'INTERVAL'} > 300) || ($Config{'GENERAL'}{'INTERVAL'} < 10) ) {
+		die "FATAL: INTERVAL must be <= 300 and >= 10 seconds !\n";
+	}
+
+	if (exists $Config{'GENERAL'}{'PID_FILE'} && !exists $Config{'GENERAL'}{'PID_DIR'}) {
+		$Config{'GENERAL'}{'PID_DIR'} = $Config{'GENERAL'}{'PID_FILE'};
+		delete $Config{'GENERAL'}{'PID_FILE'};
+	}
+
+	if (!$RUN_REMOTELY) {
+		# Add support to multi hosting
+		my $hostname = $RUN_REMOTELY || `$Config{'GENERAL'}{'HOSTNAME'}`;
+		chomp($hostname);
+		$hostname ||= 'localhost';
+		if (!-d "$Config{'GENERAL'}{'DATA_DIR'}/$hostname") {
+			unless(mkdir("$Config{'GENERAL'}{'DATA_DIR'}/$hostname", 0755)) {
+				die "FATAL: can't create RRD data files output directory $Config{'GENERAL'}{'DATA_DIR'}/$hostname\n";
+			}
+		}
+		# Allow backward compatibility by moving old datafiles into localhost repository
+		unless(opendir(DIR, "$Config{'GENERAL'}{'DATA_DIR'}")) {
+			die "Error: can't opendir $Config{'GENERAL'}{'DATA_DIR'}: $!";
+		}
+		my @mdirs = grep { !/^\./ && -f "$Config{'GENERAL'}{'DATA_DIR'}/$_" } readdir(DIR);
+		closedir DIR;
+		foreach my $file (sort @mdirs) {
+			unless(move("$Config{'GENERAL'}{'DATA_DIR'}/$file","$Config{'GENERAL'}{'DATA_DIR'}/$hostname/$file")) {
+				die "FATAL: can't move RRD data files from $Config{'GENERAL'}{'DATA_DIR'}/$file to $Config{'GENERAL'}{'DATA_DIR'}/$hostname/$file\n";
+			}
+		}
+		# Create all remote host database directories if needed
+		foreach my $d (keys %REMOTEHOST) {
+			if (!exists $REMOTEHOST{$d}{'enable'}) {
+				$REMOTEHOST{$d}{'enable'} = 'yes';
+			}
+			if (($REMOTEHOST{$d}{'enable'} ne 'no') && !-d "$Config{'GENERAL'}{'DATA_DIR'}/$d") {
+				unless(mkdir("$Config{'GENERAL'}{'DATA_DIR'}/$d", 0755)) {
+					die "FATAL: can't create remote RRD data files output directory $Config{'GENERAL'}{'DATA_DIR'}/$d\n";
+				}
+			}
+		}
+	}
+	# Set default plugin directives
+	foreach my $d (keys %PLUGIN) {
+		if (!exists $PLUGIN{$d}{'enable'}) {
+			$PLUGIN{$d}{'enable'} = 'yes';
+		}
+		if (!exists $PLUGIN{$d}{'remote'}) {
+			$PLUGIN{$d}{'remote'} = 'yes';
+		}
+	}
+
+
+}
+
+sub skipPool
+{
+	# Some time range may not send alarms
+	my ($sec , $min, $hour, @other) = localtime(time);
+	$min = "0$min" if ($min < 10);
+	$hour = "0$hour" if ($hour < 10);
+	for (my $i = 0; $i <= $#{$Config{'GENERAL'}{'SKIP_BEGIN'}}; $i++) {
+		if ( $Config{'GENERAL'}{'SKIP_BEGIN'}[$i] <= $Config{'GENERAL'}{'SKIP_END'}[$i] ) {
+			if ( ("$hour$min" >= $Config{'GENERAL'}{'SKIP_BEGIN'}[$i]) && ("$hour$min" <= $Config{'GENERAL'}{'SKIP_END'}[$i]) ) {
+				print "SKIP match, existing\n" if ($Config{'GENERAL'}{'DEBUG'});
+				return 1;
+			}
+		} elsif ( $Config{'GENERAL'}{'SKIP_BEGIN'}[$i] > $Config{'GENERAL'}{'SKIP_END'}[$i] ) {
+			if ( ("$hour$min" >= $Config{'GENERAL'}{'SKIP_BEGIN'}[$i]) && ("$hour$min" < 2400) || ("$hour$min" <= $Config{'GENERAL'}{'SKIP_END'}[$i]) && ("$hour$min" > 0)) {
+				print "SKIP match, existing\n" if ($Config{'GENERAL'}{'DEBUG'});
+				return 1;
+			}
+		}
+	}
+	return 0;
+}
+
+####
+# Just return the day part of the uptime command
+####
+sub get_uptime
+{
+
+	my $getuptime = `$Config{'GENERAL'}{'UPTIME'}`;
+	if ($getuptime =~ /^\s+\d+:\d+.+\s+up\s+(\d+)\s+(\w+),/) {
+		return $1 . " " . $2;
+	} elsif ($getuptime =~ /^\s+\d+:\d+.+\s+up\s+(\d+:\d+),/) {
+		return $1;
+	} elsif ($getuptime =~ /.*\s+up\s+(.*),.*user/) {
+		return $1;
+	} else {
+		return "Uptime can not be computed";
+	}
+}
+
+1;
+
+__END__

@@ -1,0 +1,2568 @@
+#!/usr/bin/perl
+#------------------------------------------------------------------------------
+# sysusage - Full system monitoring with RRDTOOL
+# Copyright (C) 2003-2012 Gilles Darold
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; either version 3 of the License, or
+#   any later version.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software Foundation,
+#   Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
+#
+# Author: Gilles Darold <gilles@darold.net>
+#------------------------------------------------------------------------------
+#
+# This script is used to generate graphics based on datas
+# received from the sysusage report tool.
+#
+#------------------------------------------------------------------------------
+use strict;
+
+use Getopt::Long;
+use RRDs;
+use POSIX qw(locale_h);
+setlocale(LC_ALL, 'C');
+
+
+my $VERSION = '5.2';
+
+$| = 1;
+
+my $VERBOSE = 0;
+my $SYSSTAT_VERSION = '';
+my %DEVALIAS = ();
+
+my $CONF_DIR = "/usr/local/sysusage/etc";
+my $CONF_FILE = "$CONF_DIR/sysusage.cfg";
+if (!-e $CONF_FILE) {
+        $CONF_FILE = '/usr/local/etc/sysusage.cfg';
+        if (!-e $CONF_FILE) {
+                $CONF_FILE = '/etc/sysusage.cfg';
+        }
+}
+
+my @DIMENSIONS  = (800, 400);
+my %CMD         = ();
+my $HELP        = 0;
+my $SHOWVER     = 0;
+my @LINKS       = ();
+my %Config      = ();
+my %PLUGIN	= ();
+my %REMOTEHOST  = ();
+my %PROCESS	= ();
+my %TPROCESS	= ();
+
+# Get command line arguments
+&check_args();
+
+&debug("main(): Reading configuration file $CONF_FILE\n");
+
+# Read configuration file
+&read_config();
+
+# Check if an other instance is running
+&check_running();
+
+my $uptime = &get_uptime();
+my $hostname = `$Config{'GENERAL'}{'HOSTNAME'}`;
+chomp($hostname);
+my %LABELS = (); 
+
+# Starting the main loop
+&debug("main(): Starting the main loop process\n");
+
+# Look for multisite directories
+&debug("main(): Looking for multisites stats into $Config{'GENERAL'}{'DATA_DIR'}\n");
+unless(opendir(DIR, "$Config{'GENERAL'}{'DATA_DIR'}")) {
+	unlink("$Config{'GENERAL'}{'PID_DIR'}/sysusagegraph.pid");
+	die "Error: can't opendir $Config{'GENERAL'}{'DATA_DIR'}: $!";
+}
+my @mdirs = grep { !/^\./ && -d "$Config{'GENERAL'}{'DATA_DIR'}/$_" } readdir(DIR);
+closedir DIR;
+
+if ($#mdirs == -1) {
+	unshift(@mdirs, '');
+} else {
+	# Configure base URI to multi hosting
+	if (!$Config{'GENERAL'}{'RESRC_URL'}) {
+		$Config{'GENERAL'}{'RESRC_URL'} = '../';
+	}
+}
+my $lastindexfile = '';
+foreach my $dir (sort @mdirs) {
+	# When a remote host is disable just do nothing
+	if (exists $REMOTEHOST{$dir} && (lc($REMOTEHOST{$dir}{'enable'}) eq 'no') ) {
+		next;
+	}
+	$dir = '/' . $dir if ($dir);
+	# Read database directory
+	&debug("main(): Looking for rrdtool databases into $Config{'GENERAL'}{'DATA_DIR'}$dir\n");
+	unless(opendir(DIR, "$Config{'GENERAL'}{'DATA_DIR'}$dir")) {
+		unlink("$Config{'GENERAL'}{'PID_DIR'}/sysusagegraph.pid");
+		die "Error: can't opendir $Config{'GENERAL'}{'DATA_DIR'}$dir: $!";
+	}
+	my @bases = grep { !/^\./ && !/kernel.txt/ && !/.*\.cnt$/ && -f "$Config{'GENERAL'}{'DATA_DIR'}$dir/$_" } readdir(DIR);
+	closedir DIR;
+
+	if (!-d "$Config{'GENERAL'}{'DEST_DIR'}$dir") {
+		unless(mkdir("$Config{'GENERAL'}{'DEST_DIR'}$dir", 0755)) {
+			die "ERROR: can't create directory $Config{'GENERAL'}{'DEST_DIR'}$dir, $!\n";;
+		}
+	}
+
+	# Find what to do with the database found
+	if ($#bases >= 0) {
+		&debug("main(): Found " . $#bases + 1 . " rrdtool databases\n");
+	} else {
+		&debug("main(): No rrdtool databases found. You need to run sysusage.pl first\n");
+	}
+
+	@LINKS = ();
+	%LABELS = (); 
+	foreach my $b (@bases) {
+		&debug("main(): Generating labels for base $b\n");
+		&createLabels($b,$dir);
+	}
+
+	if (!$Config{'GENERAL'}{'DEBUG'}) {
+		&debug("main(): Generating HTML index into $dir\n");
+		my $onto = $dir || $hostname;
+		$onto =~ s/.*\///;
+		my $title = "SysUsage v$VERSION on $onto";
+		$lastindexfile = &createMenu($title,$dir);
+		&createIndex($title,$dir);
+		foreach my $b (@bases) {
+			&debug("main(): Generating HTML page for base '$b' into $dir\n");
+			&createHTML($b,$dir);
+		}
+	}
+}
+
+&debug("main(): Generating HTML global index into /\n");
+if (!$Config{'GENERAL'}{'DEBUG'}) {
+	if ( ($#mdirs == 0) || scalar keys %REMOTEHOST == 0) {
+		# read index file and create a copy into main directory
+		my $dir = $mdirs[0];
+		$dir =~ s/^\///;
+		if (open(INFILE, "$lastindexfile")) {
+			my @lines = <INFILE>;
+			close(INFILE);
+			map { s/href="/href="$dir\//g; } @lines;
+			map { s/src="/src="$dir\//g; } @lines;
+			unless(open(HFILE, ">$Config{'GENERAL'}{'DEST_DIR'}/index.html")) {
+				die "Error: can't write to file $Config{'GENERAL'}{'DEST_DIR'}/index.html, $!\n";
+				unlink("$Config{'GENERAL'}{'PID_DIR'}/sysusagegraph.pid");
+			}
+			print HFILE @lines;
+			close(HFILE);
+		} else {
+			die "Error: can't read file $lastindexfile, $!\n";
+			unlink("$Config{'GENERAL'}{'PID_DIR'}/sysusagegraph.pid");
+		}
+	} else {
+		&debug("main(): Generating HTML global index for all remote hosts\n");
+		unless(open(HFILE, ">$Config{'GENERAL'}{'DEST_DIR'}/index.html")) {
+			die "Error: can't write to file $Config{'GENERAL'}{'DEST_DIR'}/index.html, $!\n";
+			unlink("$Config{'GENERAL'}{'PID_DIR'}/sysusagegraph.pid");
+		}
+		my $title = "SysUsage v$VERSION";
+		print HFILE &mainHeader($title);
+		foreach my $dir (sort @mdirs) {
+			$dir =~ s/^\///;
+			my ($date, $kernel, $status) = &getStartInfos($dir);
+			$status = 'DISABLED' if (lc($REMOTEHOST{$dir}{'enable'}) eq 'no');
+			$status = 'ACTIVE' if (!$status);
+			my $href = "$dir/index.html";
+			$href = "#" if (!-d "$Config{'GENERAL'}{'DEST_DIR'}/$dir/");
+			print HFILE "<tr><th class=\"thhost\"><a class=\"mainfooter\" href=\"$href\" target=\"_new\">$dir</a></th><td>$date</td><td>$kernel</td><td>$status</td></tr>\n";
+		}
+		print HFILE &mainFooter();
+		print HFILE "</table>\n</div>\n</div>\n</body>\n</html>\n";
+		close(HFILE);
+	}
+}
+
+&debug("main(): Exiting sysusagegraph\n");
+unlink("$Config{'GENERAL'}{'PID_DIR'}/sysusagegraph.pid");
+exit 0;
+
+sub debug
+{
+	my ($str) = @_;
+
+	if ($Config{'GENERAL'}{'DEBUG'}) {
+		print $str;
+	}
+}
+
+sub createLabels
+{
+	my ($target) = @_;
+
+	# reconfiguring text options
+	my $vlabel = '';
+	my $title = '';
+	my $legend1 = '';
+	my $legend2 = '';
+	my $legend3 = '';
+	my $legend_A = '';
+	my $legend_B = '';
+	my $legend_C = '';
+	my $section = '';
+	my $submenu = '';
+
+	if ($target =~ /^cpudist/) {
+		$target =~ /^cpudist(\d+)/;
+		my $name = $1;
+		$name = 'All' if ($name eq '');
+		$vlabel  = 'Percentage cpu used';
+		$title   = "CPU $name distribution usage";
+		$legend_A = 'User';
+		$legend_B = 'Nice';
+		$legend_C = 'System';
+		$legend1 = 'percent';
+		$legend2 = 'percent';
+		$legend3 = 'percent';
+		$section = "CPU$name";
+	} elsif ($target =~ /^cpuvirt/) {
+		$target =~ /^cpuvirt(\d+)/;
+		my $name = $1;
+		$name = 'All' if ($name eq '');
+		$vlabel  = 'Percentage cpu used';
+		$title   = "CPU $name virtual usage";
+		$legend_A = 'Percentage steal';
+		$legend_B = 'Percentage guest';
+		$legend1 = 'percent';
+		$legend2 = 'percent';
+		$section = "CPU$name";
+	} elsif ($target =~ /^cpu/) {
+		$target =~ /^cpu(\d+)/;
+		my $name = $1;
+		$name = 'All' if ($name eq '');
+		$vlabel  = 'Percentage cpu used';
+		$title   = "CPU $name global usage";
+		$legend_A = 'Total cpu used';
+		$legend_B = 'iowait';
+		$legend1 = 'percent';
+		$legend2 = 'percent';
+		$section = "CPU$name";
+	} elsif ($target =~ /^net_(.*)/) {
+		my $name = $1 || '';
+		$name = 'All' if ($name eq '');
+		$title   = "Network interface $name usage";
+		$vlabel  = 'Byte / second';
+		$legend_A = 'In byte per second';
+		$legend_B = 'Out byte per second';
+		$legend1 = 'long';
+		$legend2 = 'long';
+		$section = "Network $name";
+	} elsif ($target =~ /^err_(.*)/) {
+		my $name = $1 || '';
+		$name = 'All' if ($name eq '');
+		$vlabel  = 'Packet / second';
+		$title   = "Network interface $name bad packet";
+		$legend_A = 'In packet per second';
+		$legend_B = 'Out packet per second';
+		$legend1 = 'long';
+		$legend2 = 'long';
+		$section = "Network $name";
+	} elsif ($target =~ /^drop_(.*)/) {
+		my $name = $1 || '';
+		$name = 'All' if ($name eq '');
+		$vlabel  = 'Packets / second';
+		$title   = "Network interface $name packet dropped";
+		$legend_A = 'In packet per second';
+		$legend_B = 'Out packet per second';
+		$legend1 = 'long';
+		$legend2 = 'long';
+		$section = "Network $name";
+	} elsif ($target =~ /^coll_(.*)/) {
+		my $name = $1 || '';
+		$name = 'All' if ($name eq '');
+		$vlabel  = 'Packet / second';
+		$title   = "Network interface $name collision";
+		$legend_A = 'packet per second';
+		$legend1 = 'long';
+		$section = "Network $name";
+	} elsif ($target eq 'load') {
+		$vlabel  = 'Load';
+		$title   = 'Load Average';
+		$legend_A = 'Last minute load';
+		$legend_B = 'Last 5 minutes load';
+		$legend_C = 'Last 15 minutes load';
+		$legend1 = 'float';
+		$legend2 = 'float';
+		$legend3 = 'float';
+		$section = "Process";
+	} elsif ($target eq 'mem') {
+		$vlabel  = 'Bytes used';
+		$title   = 'Memory usage';
+		$legend_A = 'Total memory used (memory + cache)';
+		$legend_B = 'Memory used (memory - cache)';
+		$legend_C = 'Memory cached';
+		$legend1 = 'long';
+		$legend2 = 'long';
+		$legend3 = 'long';
+		$section = "Memory";
+	} elsif ($target eq 'work') {
+		$vlabel  = 'Bytes needed';
+		$title   = 'Memory needed for workload';
+		$legend_A = 'Bytes needed';
+		$legend1 = 'long';
+		$section = "Memory";
+	} elsif ($target =~ /^swap/) {
+		$vlabel  = 'Percentage swap used';
+		$title   = "Swap usage";
+		$legend_A = 'Percent swap used';
+		$legend_B = 'Percent swap used by cache';
+		$legend1 = 'percent';
+		$legend2 = 'percent';
+		$section = "Memory";
+	} elsif ($target =~ /^dev_/) {
+		$target =~ /^dev_(.*)/;
+		my $tmp = $1;
+		$tmp =~ s#__#{TMPCHAR}#g;
+		$tmp =~ s#_#/#g;
+		$tmp =~ s#\{TMPCHAR\}#_#g;
+		my $dev = $DEVALIAS{$tmp} || $tmp;
+		$vlabel  = 'Percentage CPU time / Queue length';
+		$title   = "CPU time for I/O on $dev";
+		$legend_A = 'Percentage of CPU time';
+		$legend_B = 'Average request queue length';
+		$legend1 = 'percent';
+		$legend2 = 'integer';
+		$section = "Device $dev";
+	} elsif ($target =~ /^devio_/) {
+		$target =~ /^devio_(.*)/;
+		my $tmp = $1;
+		$tmp =~ s#__#{TMPCHAR}#g;
+		$tmp =~ s#_#/#g;
+		$tmp =~ s#\{TMPCHAR\}#_#g;
+		my $dev = $DEVALIAS{$tmp} || $tmp;
+		$vlabel  = 'I/O sectors from device';
+		$title   = "I/O sectors on $dev";
+		$legend_A = 'Read sectors per second';
+		$legend_B = 'Write sectors per second';
+		$legend1 = 'long';
+		$legend2 = 'long';
+		$section = "Device $dev";
+	} elsif ($target =~ /^devwait_/) {
+		$target =~ /^devwait_(.*)/;
+		my $tmp = $1;
+		$tmp =~ s#__#{TMPCHAR}#g;
+		$tmp =~ s#_#/#g;
+		$tmp =~ s#\{TMPCHAR\}#_#g;
+		my $dev = $DEVALIAS{$tmp} || $tmp;
+		$vlabel  = 'Time for I/O requests';
+		$title   = "Times for I/O requests issued to $dev";
+		$legend_A = 'Time spent in queue (await)';
+		$legend_B = 'Time spent in servicing (svctm)';
+		$legend1 = 'long';
+		$legend2 = 'long';
+		$section = "Device $dev";
+	} elsif ($target =~ /^devwork_/) {
+		$target =~ /^devwork_(.*)/;
+		my $tmp = $1;
+		$tmp =~ s#__#{TMPCHAR}#g;
+		$tmp =~ s#_#/#g;
+		$tmp =~ s#\{TMPCHAR\}#_#g;
+		my $dev = $DEVALIAS{$tmp} || $tmp;
+		$vlabel  = 'Workload I/O on device';
+		$title   = "I/O workload on $dev";
+		$legend_A = 'tps workload';
+		$legend_B = 'iops workload';
+		$legend1 = 'long';
+		$legend2 = 'long';
+		$section = "Device $dev";
+	} elsif ($target =~ /^devtput_/) {
+		$target =~ /^devtput_(.*)/;
+		my $tmp = $1;
+		$tmp =~ s#__#{TMPCHAR}#g;
+		$tmp =~ s#_#/#g;
+		$tmp =~ s#\{TMPCHAR\}#_#g;
+		my $dev = $DEVALIAS{$tmp} || $tmp;
+		$vlabel  = 'Maximum disk throughput';
+		$title   = "Disk throughput on $dev";
+		$legend_A = 'Kb/s';
+		$legend1 = 'long';
+		$section = "Device $dev";
+	} elsif ($target =~ /^disk/) {
+		$target =~ /^disk(.*)/;
+		my $dev = $1;
+                # Get exclude mount point from configuration
+                if ($#{$CMD{'disk'}} == 1) {
+                        my @exclude = split(m#[;]+#, $CMD{'disk'}[1]);
+			map { s/_/__/g; s/\//_/g; } @exclude;
+                        if (grep($dev =~ m#$_#, @exclude)) {
+                                return;
+                        }
+                }
+		$dev =~ s#__#{TMPCHAR}#g;
+		$dev =~ s#_#/#g;
+		$dev =~ s#\{TMPCHAR\}#_#g;
+		$vlabel  = 'Percentage used';
+		$title   = "Disk usage on $dev";
+		$legend_A = 'Space used';
+		$legend1 = 'percent';
+		$legend_B = 'Inode used';
+		$legend2 = 'percent';
+		$section = "Files";
+	} elsif ($target =~ /^queue/) {
+		$target =~ /^queue(.*)/;
+		my $dir = $1;
+		$dir =~ s#__#{TMPCHAR}#g;
+		$dir =~ s#_#/#g;
+		$dir =~ s#\{TMPCHAR\}#_#g;
+		$vlabel  = 'Number of files';
+		$title   = "Files in queue $dir";
+		$legend_A = 'files';
+		$legend1 = 'long';
+		$section = "Files";
+	} elsif ($target =~ /^share/) {
+		$vlabel  = 'Percentage share memory used';
+		$title   = "Posix share Memory";
+		$legend_A = 'Percent used';
+		$legend1 = 'percent';
+		$section = "Memory";
+	} elsif ($target eq 'sock') {
+		$vlabel  = 'Sockets';
+		$title   = 'Number of open socket';
+		$legend_A = 'Total open socket';
+		$legend_B = 'TCP sockets';
+		$legend_C = 'UDP sockets';
+		$legend1 = 'long';
+		$legend2 = 'long';
+		$legend3 = 'long';
+		$section = "Network All";
+	} elsif ($target eq 'socktw') {
+		$vlabel  = 'Sockets';
+		$title   = 'Number of TIME_WAIT socket';
+		$legend_A = 'Total socket in TIME_WAIT';
+		$legend1 = 'long';
+		$section = "Network All";
+	} elsif ($target eq 'io') {
+		$vlabel  = 'Requests / second';
+		$title   = 'I/O request usage';
+		$legend_A = 'Read request per second';
+		$legend_B = 'Write request per second';
+		$legend1 = 'long';
+		$legend2 = 'long';
+		$section = "I/O";
+	} elsif ($target eq 'bio') {
+		$vlabel  = 'Blocks / second';
+		$title   = 'I/O block usage';
+		$legend_A = 'Read block per second';
+		$legend_B = 'Write block per second';
+		$legend1 = 'long';
+		$legend2 = 'long';
+		$section = "I/O";
+	} elsif ($target eq 'pswap') {
+		$vlabel  = 'Page swap / second';
+		$title   = 'I/O page swap usage';
+		$legend_A = 'Page read per second';
+		$legend_B = 'Page write per second';
+		$legend1 = 'long';
+		$legend2 = 'long';
+		$section = "I/O";
+	} elsif ($target eq 'file') {
+		$vlabel  = 'Percentage of open file';
+		$title   = 'Percentage of open file regarding file-max';
+		$legend_A = 'Percentage of open file';
+		$legend1 = 'percent';
+		$section = "Files";
+	} elsif ($target eq 'filen') {
+		$vlabel  = 'Number of open file';
+		$title   = 'Number of open file';
+		$legend_A = 'Open files';
+		$legend1 = 'long';
+		$section = "Files";
+	} elsif ($target eq 'page') {
+		$vlabel  = 'I/O page / second';
+		$title   = 'I/O page usage';
+		$legend_A = 'Page read per second';
+		$legend_B = 'Page write per second';
+		$legend1 = 'long';
+		$legend2 = 'long';
+		$section = "I/O";
+	} elsif ($target eq 'vmeff') {
+		$vlabel  = 'Percentage pgsteal / pgscan';
+		$title   = 'Virtual memory efficiency';
+		$legend_A = '% pgsteal / pgscan';
+		$legend1 = 'percent';
+		$section = "Memory";
+	} elsif ($target eq 'pcrea') {
+		$vlabel  = 'Process / second';
+		$title   = 'Process created per second';
+		$legend_A = 'Process per second';
+		$legend1 = 'long';
+		$section = "Process";
+	} elsif ($target =~ /^proc_(.*)/) {
+		my $name = $1 || '';
+		$vlabel  = 'Running process';
+		$title   = "Running $name process";
+		$legend_A = 'running process';
+		$legend1 = 'long';
+		$section = "Process";
+	} elsif ($target =~ /^tproc_(.*)/) {
+		my $name = $1 || '';
+		$vlabel  = 'Running thread';
+		$title   = "Running $name thread";
+		$legend_A = 'running thread';
+		$legend1 = 'long';
+		$section = "Process";
+	} elsif ($target eq 'cswch') {
+		$vlabel  = 'Context Switches / second';
+		$title   = 'Context Switches per second';
+		$legend_A = 'context switch';
+		$legend1 = 'long';
+		$section = "I/O";
+	} elsif ($target eq 'intr') {
+		$vlabel  = 'Interrupts / second';
+		$title   = 'Interrupts per second';
+		$legend_A = 'interrupt';
+		$legend1 = 'long';
+		$section = "I/O";
+	} elsif ($target =~ /^hddtemp/) {
+		$target =~ /^hddtemp_(.*)/;
+		my $device = $1;
+		$device =~ s#_#/#g;
+		$vlabel  = 'Temperature degrees C';
+		$title   = "Hard drive temperature on $device";
+		$legend_A = 'degrees C';
+		$legend1 = 'long';
+		$section = "Device hddtemp";
+	} elsif ($target =~ /^sensors/) {
+		$target =~ /^sensors_(.*)/;
+		my $device = $1;
+		$device =~ s#_# #g;
+		if ($device =~ /\bfan\d*\b/i) {
+			$vlabel  = 'RPM';
+			$title   = "$device";
+			$legend_A = 'RPM';
+			$legend1  = 'long';
+		} else {
+			$vlabel  = 'Temperature degrees C';
+			$device .= "erature" if ($device =~ /\btemp\b/i);
+			$title   = "$device";
+			$legend_A = 'degrees C' . " $device 1";
+			$legend1  = 'long';
+			$legend_B = 'degrees C' . " $device 2";
+			$legend2  = 'long';
+		}
+		$section = "Device Sensors";
+	} elsif ($target eq 'tcpseg') {
+		$vlabel  = 'TCP segments per second';
+		$title   = 'TCP segments';
+		$legend_A = 'TCP segments received per second';
+		$legend_B = 'TCP segments sent per second';
+		$legend1 = 'long';
+		$legend2 = 'long';
+		$section = "Network All";
+	} elsif ($target eq 'tcp') {
+		$vlabel  = 'TCP connections per second';
+		$title   = 'TCP connections';
+		$legend_A = 'Active SYN-SENT connections per second';
+		$legend_B = 'Passive SYN-RCVD connections per second';
+		$legend1 = 'long';
+		$legend2 = 'long';
+		$section = "Network All";
+	} elsif (exists $PLUGIN{$target} && ($PLUGIN{$target}{enabled} ne 'no')) {
+		$vlabel  = $PLUGIN{$target}{verticallabel};
+		$title   = $PLUGIN{$target}{title};
+		$legend_A = $PLUGIN{$target}{label1};
+		$legend_B = $PLUGIN{$target}{label2};
+		$legend_C = $PLUGIN{$target}{label3};
+		$legend1 = $PLUGIN{$target}{legend1};
+		$legend2 = $PLUGIN{$target}{legend2};
+		$legend3 = $PLUGIN{$target}{legend3};
+		$section = "SysUsage Plugins";
+		$submenu = $PLUGIN{$target}{menu} || 'others';
+	}
+	push(@LINKS, { ('section' => $section, 'title' => $title, 'url' => "$target.html", 'plugmenu' => "$submenu") } );
+
+	$LABELS{$target}{vlabel} = $vlabel;
+	$LABELS{$target}{title} = $title;
+	$LABELS{$target}{legend1} = $legend1;
+	$LABELS{$target}{legend2} = $legend2;
+	$LABELS{$target}{legend3} = $legend3;
+	$LABELS{$target}{legend_A} = $legend_A;
+	$LABELS{$target}{legend_B} = $legend_B;
+	$LABELS{$target}{legend_C} = $legend_C;
+
+}
+
+sub createHTML
+{
+	my ($target,$dir) = @_;
+
+	my $title = '';
+	my $section = '';
+	my $submenu = '';
+
+	if ($target =~ /^cpudist/) {
+		$target =~ /^cpudist(\d+)/;
+		my $name = $1;
+		$title   = "CPU $name distribution usage";
+		$section = 'CPU';
+	} elsif ($target =~ /^cpuvirt/) {
+		$target =~ /^cpuvirt(\d+)/;
+		my $name = $1;
+		$title   = "CPU $name virtual usage";
+		$section = 'CPU';
+	} elsif ($target =~ /^cpu/) {
+		$target =~ /^cpu(\d+)/;
+		my $name = $1;
+		$title   = "CPU $name global usage";
+		$section = 'CPU';
+	} elsif ($target =~ /^net_(.*)/) {
+		my $name = $1 || '';
+		$title   = "Network interface $name usage";
+		$section = 'Network';
+	} elsif ($target =~ /^err_(.*)/) {
+		my $name = $1 || '';
+		$title   = "Network interface $name bad packet";
+		$section = 'Network';
+	} elsif ($target =~ /^drop_(.*)/) {
+		my $name = $1 || '';
+		$title   = "Network interface $name packet dropped";
+		$section = 'Network';
+	} elsif ($target =~ /^coll_(.*)/) {
+		my $name = $1 || '';
+		$title   = "Network interface $name collision";
+		$section = 'Network';
+	} elsif ($target eq 'load') {
+		$title   = 'Load Average';
+		$section = 'Process';
+	} elsif ($target eq 'mem') {
+		$title   = 'Memory usage';
+		$section = 'Memory';
+	} elsif ($target eq 'work') {
+		$title   = 'Memory needed';
+		$section = 'Memory';
+	} elsif ($target eq 'swap') {
+		$title   = 'Swap usage';
+		$section = 'Memory';
+	} elsif ($target =~ /^disk/) {
+		$target =~ /^disk(.*)/;
+		my $dev = $1;
+                # Get exclude mount point from configuration
+                if ($#{$CMD{'disk'}} == 1) {
+                        my @exclude = split(m#[;]+#, $CMD{'disk'}[1]);
+			map { s/_/__/g; s/\//_/g; } @exclude;
+                        if (grep($dev =~ m#$_#, @exclude)) {
+                                return;
+                        }
+                }
+		$dev =~ s#__#{TMPCHAR}#g;
+		$dev =~ s#_#/#g;
+		$dev =~ s#\{TMPCHAR\}#_#g;
+		$title   = "Disk usage on $dev";
+		$section = 'Files';
+	} elsif ($target =~ /^dev_/) {
+		$target =~ /^dev_(.*)/;
+		my $dev = $1;
+		$dev =~ s#__#{TMPCHAR}#g;
+		$dev =~ s#_#/#g;
+		$dev =~ s#\{TMPCHAR\}#_#g;
+		$title   = "CPU time for I/O on device $dev";
+		$section = 'Device';
+	} elsif ($target =~ /^devio_/) {
+		$target =~ /^devio_(.*)/;
+		my $dev = $1;
+		$dev =~ s#__#{TMPCHAR}#g;
+		$dev =~ s#_#/#g;
+		$dev =~ s#\{TMPCHAR\}#_#g;
+		$title   = "I/O on device $dev";
+		$section = 'Device';
+	} elsif ($target =~ /^devwait_/) {
+		$target =~ /^devwait_(.*)/;
+		my $dev = $1;
+		$dev =~ s#__#{TMPCHAR}#g;
+		$dev =~ s#_#/#g;
+		$dev =~ s#\{TMPCHAR\}#_#g;
+		$title   = "Average time for device $dev";
+		$section = 'Device';
+	} elsif ($target =~ /^devwork_/) {
+		$target =~ /^devwork_(.*)/;
+		my $dev = $1;
+		$dev =~ s#__#{TMPCHAR}#g;
+		$dev =~ s#_#/#g;
+		$dev =~ s#\{TMPCHAR\}#_#g;
+		$title   = "I/O Workload on device $dev";
+		$section = 'Device';
+	} elsif ($target =~ /^devtput_/) {
+		$target =~ /^devtput_(.*)/;
+		my $dev = $1;
+		$dev =~ s#__#{TMPCHAR}#g;
+		$dev =~ s#_#/#g;
+		$dev =~ s#\{TMPCHAR\}#_#g;
+		$title   = "Disk throughput on device $dev";
+		$section = 'Device';
+	} elsif ($target =~ /^queue/) {
+		$target =~ /^queue(.*)/;
+		my $dir = $1;
+		$dir =~ s#__#{TMPCHAR}#g;
+		$dir =~ s#_#/#g;
+		$dir =~ s#\{TMPCHAR\}#_#g;
+		$title   = "Number of files in $dir";
+		$section = 'Files';
+	} elsif ($target eq 'share') {
+		$title   = 'Share Memory usage';
+		$section = 'Memory';
+	} elsif ($target eq 'sock') {
+		$title   = 'Number of open socket';
+		$section = 'Network';
+	} elsif ($target eq 'socktw') {
+		$title   = 'Number of time_wait socket';
+		$section = 'Network';
+	} elsif ($target eq 'io') {
+		$title   = 'I/O request usage';
+		$section = 'I/O';
+	} elsif ($target eq 'bio') {
+		$title   = 'I/O block usage';
+		$section = 'I/O';
+	} elsif ($target eq 'pswap') {
+		$title   = 'Swap page usage';
+		$section = 'I/O';
+	} elsif ($target eq 'file') {
+		$title   = 'Percentage of open file regarding file-max';
+		$section = 'Files';
+	} elsif ($target eq 'filen') {
+		$title   = 'Number of open file';
+		$section = 'Files';
+	} elsif ($target eq 'page') {
+		$title   = 'I/O page usage';
+		$section = 'I/O';
+	} elsif ($target eq 'vmeff') {
+		$title   = 'Virtual memory efficiency';
+		$section = 'Memory';
+	} elsif ($target eq 'pcrea') {
+		$title   = 'Number of process created per second';
+		$section = 'Process';
+	} elsif ($target eq 'cswch') {
+		$title   = 'Context Switches per second';
+		$section = 'I/O';
+	} elsif ($target eq 'intr') {
+		$title   = 'Interrupts per second';
+		$section = 'I/O';
+	} elsif ($target =~ /^proc_(.*)/) {
+		my $name = $1 || '';
+		$title   = "Number of running $name process";
+		$section = 'Process';
+	} elsif ($target =~ /^tproc_(.*)/) {
+		my $name = $1 || '';
+		$title   = "Number of running $name thread";
+		$section = 'Process';
+	} elsif ($target =~ /^hddtemp/) {
+		$target =~ /^hddtemp_(.*)/;
+		my $device = $1;
+		$device =~ s#_#/#g;
+		$target =~ s#/#_#g;
+		$title   = "Hard drive temperature for $device";
+		$section = 'Device';
+	} elsif ($target =~ /^sensors/) {
+		$target =~ /^sensors_(.*)/;
+		my $device = $1;
+		$device =~ s#_# #g;
+		$device .= "erature" if ($device =~ /\btemp\b/i);
+		$title   = "$device";
+		$section = 'Device';
+	} elsif ($target eq 'tcpseg') {
+		$title   = 'TCP segments usage';
+		$section = 'Network';
+	} elsif ($target eq 'tcp') {
+		$title   = 'TCP connections usage';
+		$section = 'Network';
+	} elsif (exists $PLUGIN{$target} && ($PLUGIN{$target}{enabled} ne 'no')) {
+		$title = $PLUGIN{$target}{title};
+		$section = 'Plugins';
+		$submenu = $PLUGIN{$target}{menu} || 'others';
+	}
+
+	unless(open(HFILE, ">$Config{'GENERAL'}{'DEST_DIR'}$dir/$target.html")) {
+		unlink("$Config{'GENERAL'}{'PID_DIR'}/sysusagegraph.pid");
+		die "Error: can't write to file $Config{'GENERAL'}{'DEST_DIR'}$dir/$target.html, $!\n";
+	}
+	my $help = &get_help($target);
+	my $tmphead = &pageHeader($target, $title, $dir);
+	$tmphead =~ s/(><strong>$section<)/ id="active"$1/;
+	print HFILE $tmphead;
+	print HFILE qq{
+  <table><tr><td>
+  <div class="uitabsbar" id="tabs">
+        <ul>
+                <li><a href="#tabs-1">Day view</a></li>
+                <li><a href="#tabs-2">Week view</a></li>
+                <li><a href="#tabs-3">Month view</a></li>
+                <li><a href="#tabs-4">Year view</a></li>
+                <li><a href="#tabs-5">Infos</a></li>
+        </ul>
+        <div id="tabs-1">
+            <div id="chartday" style="margin-top:20px; margin-left:20px;" data-width="$DIMENSIONS[0]px" data-height="$DIMENSIONS[1]px"></div>
+            <div style="padding-top:20px"><button value="reset" type="button" onclick="plotday.resetZoom();">Zoom Out</button></div>
+        </div>
+        <div id="tabs-2">
+            <div id="chartweek" style="margin-top:20px; margin-left:20px;" data-width="$DIMENSIONS[0]px" data-height="$DIMENSIONS[1]px"></div>
+            <div style="padding-top:20px"><button value="reset" type="button" onclick="plotweek.resetZoom();">Zoom Out</button></div>
+        </div>
+        <div id="tabs-3">
+            <div id="chartmonth" style="margin-top:20px; margin-left:20px;" data-width="$DIMENSIONS[0]px" data-height="$DIMENSIONS[1]px"></div>
+            <div style="padding-top:20px"><button value="reset" type="button" onclick="plotmonth.resetZoom();">Zoom Out</button></div>
+        </div>
+        <div id="tabs-4">
+            <div id="chartyear" style="margin-top:20px; margin-left:20px;" data-width="$DIMENSIONS[0]px" data-height="$DIMENSIONS[1]px"></div>
+            <div style="padding-top:20px"><button value="reset" type="button" onclick="plotyear.resetZoom();">Zoom Out</button></div>
+        </div>
+        <div id="tabs-5">
+<h2><em>$title</em></h2>
+$help
+        </div>
+  </div>
+  </td></tr></table>
+
+};
+	print HFILE &footer($target);
+
+}
+
+sub createIndex
+{
+	my ($title,$dir) = @_;
+
+	unless(open(HFILE, ">$Config{'GENERAL'}{'DEST_DIR'}$dir/start.html")) {
+		die "Error: can't write to file $Config{'GENERAL'}{'DEST_DIR'}$dir/start.html, $!\n";
+		unlink("$Config{'GENERAL'}{'PID_DIR'}/sysusagegraph.pid");
+	}
+	my $date = localtime(time);
+	my $kernel = 'OS: unknown';
+	my $lastrun = '';
+	# Get the kernel version
+	if (open(KFILE, "$Config{'GENERAL'}{'DATA_DIR'}$dir/kernel.txt")) {
+		$kernel = <KFILE>;
+		$lastrun = <KFILE>;
+		$uptime = <KFILE>;
+		$SYSSTAT_VERSION = <KFILE>;
+		close(KFILE);
+	}
+	$lastrun ||= $date;
+	my $tmphostname=$dir;
+	$tmphostname =~ s/.*\///;
+
+
+	print HFILE qq{<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head>
+<title>$title</title>
+<meta NAME="robots" CONTENT="noindex,nofollow">
+<meta HTTP-EQUIV="Pragma" CONTENT="no-cache">
+<meta HTTP-EQUIV="Cache-Control" content="no-cache">
+<meta HTTP-EQUIV="Expires" CONTENT="$date">
+<meta HTTP-EQUIV="Generator" CONTENT="Sysusage $VERSION">
+<meta HTTP-EQUIV="Date" CONTENT="$date">
+<meta HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=utf-8">
+<link rel="stylesheet" type="text/css" href="$Config{'GENERAL'}{'RESRC_URL'}sysusage.css" />
+<link rel="icon" href="$Config{'GENERAL'}{'RESRC_URL'}favicon.ico" type="image/x-icon" />
+<link rel="shortcut icon" href="$Config{'GENERAL'}{'RESRC_URL'}favicon.ico" type="image/x-icon" /> 
+<script type="text/javascript" src="$Config{'GENERAL'}{'RESRC_URL'}sysusage.js"></script>
+</head>
+<body>
+<div id="bodier">
+<table align="center" width="100%">
+<tr>
+<td align="center" height="500">
+<div id="sysstat">
+The statistics were last updated <b>$lastrun</b>,<br />
+at which time <b>'$tmphostname'</b> had been up for <b>$uptime</b>.<br />
+[ <b>$kernel</b> ]<br />
+Pooling interval: $Config{'GENERAL'}{'INTERVAL'} seconds.<br />
+Based on <a target="_new" href="http://pagesperso-orange.fr/sebastien.godard/"><b>$SYSSTAT_VERSION</b></a>
+</div>
+</td>
+</tr>
+</table>
+};
+	print HFILE &footer();
+}
+
+
+####
+# Function used to check command line argument and configuration
+####
+sub check_args {
+        GetOptions(
+                "c=s"    => \$CONF_FILE,
+                "d!"     => \$VERBOSE,
+                "debug!" => \$VERBOSE,
+                "h!"     => \$HELP,
+		"help!"  => \$HELP,
+		"v!"     => \$SHOWVER
+        ) || &usage();
+        &usage() if ($HELP);
+
+        if ($SHOWVER) {
+                print "Sysusage v$VERSION\n";
+                exit 0;
+        }
+
+	# Check configuration
+	if (! -f $CONF_FILE) {
+		print "ERROR: Configuration file $CONF_FILE doesn't exists.\n";
+		&usage();
+	}
+
+}
+
+
+####
+# Function used to return command line usage 
+####
+sub usage
+{
+	print qq{
+Usage: sysusagegraph [-c conf_file] [-h|--help] [-v]
+
+	-c file    : Path to config file. Def: /usr/local/etc/sysusage.cfg
+	-d|--debug : Verbose output.
+	-h|--help  : Output this message and exit
+	-v         : Show Sysusagegraph version
+
+};
+	unlink("$Config{'GENERAL'}{'PID_DIR'}/sysusagegraph.pid");
+
+	exit 0;
+}
+
+
+####
+# Function used to return uptime
+# Just return the day part of the uptime command
+####
+sub get_uptime
+{
+	my $getuptime = `$Config{'GENERAL'}{'UPTIME'}`;
+	if ($getuptime =~ /^\s+\d+:\d+.+\s+up\s+(\d+)\s+(\w+),/) {
+		return $1 . " " . $2;
+	} elsif ($getuptime =~ /^\s+\d+:\d+.+\s+up\s+(\d+:\d+),/) {
+		return $1;
+	} else {
+		return "Uptime can not be computed";
+	}
+}
+
+sub footer
+{
+	my $target = shift;
+
+	return qq{
+<div id="footer">
+<p>
+Generated by <a target=\"_new\" href="http://sysusage.darold.net/">SysUsage v$VERSION</a> (GPL v3)<br>
+Copyright (c) 2003-2012 Gilles Darold - All rights reserved.
+</p>
+</div>
+</div>
+</body>
+</html>
+};
+
+}
+
+
+sub check_running
+{
+	if (-e "$Config{'GENERAL'}{'PID_DIR'}/sysusagegraph.pid") {
+		my @ret = `ps -e -o command | grep -E "sysusagegraph|sysusagejqgraph" | grep perl | grep -v grep`;
+		if ($#ret > 0) {
+			print qq{
+	An other instance of sysusagegraph or sysusagejqgraph is running. Please wait...
+	exiting...
+};
+			exit 0;
+		} else {
+			print qq{
+	Found $Config{'GENERAL'}{'PID_DIR'}/sysusagegraph.pid and no instance
+	of sysusagegraph or sysusagejqgraph is running. Removing it...
+};
+			unlink("$Config{'GENERAL'}{'PID_DIR'}/sysusagegraph.pid");
+		}
+	}
+	open(PIDF, ">$Config{'GENERAL'}{'PID_DIR'}/sysusagegraph.pid") or die "Error: can't write into $Config{'GENERAL'}{'PID_DIR'}/sysusagegraph.pid\n";
+	print PIDF "$$";
+	close(PIDF);
+}
+
+####
+# Function used to load sysusage configuration
+####
+sub read_config
+{
+	my $part = '';
+
+	unless(open(CONF, "$CONF_FILE")) {
+		die "ERROR: can't open file $CONF_FILE, $!\n";
+	}
+	while (my $l = <CONF>) {
+		chomp($l);
+		$l =~ s///;
+		# Skip empty line and comments
+		next if (!$l || ($l =~ /^[\s\t]*#/));
+		if ($l =~ /\[[\s\t]*GENERAL[\s\t]*\]/i) {
+			$part = 'GENERAL';
+			next;
+		} elsif ($l =~ /\[[\s\t]*ALARM[\s\t]*\]/i) {
+			$part = 'ALARM';
+			next;
+		} elsif ($l =~ /\[[\s\t]*MONITOR[\s\t]*\]/i) {
+			$part = 'MONITOR';
+			next;
+		} elsif ($l =~ /\[[\s\t]*PLUGIN[\t\s]+([^\s\t]*)[\s\t]*\]/i) {
+			$part = 'PLUGIN ' . $1;
+			next;
+		} elsif ($l =~ /\[[\s\t]*REMOTE[\t\s]*([^\s\t]*)[\s\t]*\]/i) {
+			$part = 'REMOTE ' . $1;
+			next;
+		}
+		if ($part eq 'MONITOR') {
+			# type:ThresholdMax:ThresholdMin
+			my ($type, $thres_max, $thres_min, $other) = split(/:/, $l);
+			if ($type eq 'queue') {
+				$type = "queue_$thres_max";
+				$thres_max = $thres_min;
+				$thres_min = '';
+			} elsif ($type eq 'proc') {
+				my $process = $thres_max;
+				$process =~ s/[^a-z0-9]+//i;
+				$type = "proc_$process";
+				$PROCESS{$type} = $thres_max;
+				$thres_max = $thres_min;
+				$thres_min = $other;
+			} elsif ($type eq 'tproc') {
+				my $process = $thres_max;
+				$process =~ s/[^a-z0-9]+//i;
+				$type = "tproc_$process";
+				$TPROCESS{$type} = $thres_max;
+				$thres_max = $thres_min;
+				$thres_min = $other;
+			} elsif ($type eq 'dev') {
+				if ($thres_max =~ s/\s*\((.*)\).*//) {
+					$DEVALIAS{"$thres_max"} = $1;
+				}
+				$type = "dev_$thres_max";
+				$thres_max = $thres_min;
+				$thres_min = $other;
+			} elsif ($type eq 'hddtemp') {
+				$type = "hddtemp_$thres_max";
+				$thres_max = $thres_min;
+				$thres_min = $other;
+			} elsif ($type eq 'sensors') {
+				$type = "sensors_$thres_max";
+				$thres_max = $thres_min;
+				$thres_min = $other;
+			} elsif ($type eq 'mem') {
+				if ($thres_max) {
+					my $m = `free | grep "Mem:" | awk '{print \$2}'`;
+					$m *= 1000;
+					$thres_max = (($m * $thres_max) / 100);
+				}
+			}
+			$type =~ s/\//_/g;
+			push(@{$CMD{$type}}, $thres_max, $thres_min);
+		} elsif ($part =~ /PLUGIN (.*)/) {
+			my $name = lc($1);
+			my ($var, $val) = split(/[\s\t]*:[\s\t]*/, $l, 2);
+			$var =~ s/[^a-z0-9]+//i;
+			$name =~ s/[^a-z0-9\_\-]+//i;
+			$PLUGIN{"\L$name\E"}{"\L$var\E"} = $val;
+		} elsif ($part =~ /REMOTE (.*)/) {
+			my $name = lc($1);
+			my ($var, $val) = split(/[\s\t]*:[\s\t]*/, $l, 2);
+			$var =~ s/[^a-z0-9\_]+//i;
+			$name =~ s/[^a-z0-9\_\-\.]+//i;
+			$REMOTEHOST{"\L$name\E"}{"\L$var\E"} = $val;
+		} else {
+			if (!$part) {
+				die "ERROR: Invalid configuration file syntax, please read documentation\n";
+			}
+			my ($var, $val) = split(/\s*=\s*/, $l, 2);
+			$Config{$part}{"\U$var\E"} = $val; 
+		}
+	}
+	close(CONF);
+
+	if (! -d $Config{'GENERAL'}{'DEST_DIR'}) {
+		unless(mkdir($Config{'GENERAL'}{'DEST_DIR'}, 0755)) {
+			print "ERROR: Output graph directory $Config{'GENERAL'}{'DEST_DIR'} doesn't exists.\n";
+			&usage();
+		}
+	}
+	if (! -d $Config{'GENERAL'}{'DATA_DIR'}) {
+		print "ERROR: RRD database directory $Config{'GENERAL'}{'DATA_DIR'} doesn't exists.\n";
+		&usage();
+	}
+        if (!-x $Config{'GENERAL'}{'UPTIME'}) {
+                print "ERROR: uptime command not found at $Config{'GENERAL'}{'UPTIME'}\n";
+		&usage();
+        } elsif (!-x $Config{'GENERAL'}{'HOSTNAME'}) {
+                print "ERROR: hostname command not found at $Config{'GENERAL'}{'HOSTNAME'}\n";
+		&usage();
+        }
+	if ($VERBOSE) {
+		$Config{'GENERAL'}{'DEBUG'} = 1;
+	}
+	if ($Config{'GENERAL'}{'SAR_BIN'}) {
+		$SYSSTAT_VERSION = `$Config{'GENERAL'}{'SAR_BIN'} -V 2>&1 | grep "sysstat version"`;
+	} else {
+		$SYSSTAT_VERSION = `sar -V 2>&1 | grep "sysstat version"`;
+	}
+	$SYSSTAT_VERSION ||= 'sysstat';
+	chomp($SYSSTAT_VERSION);
+
+	if ($Config{'GENERAL'}{'GRAPH_WIDTH'}) {
+		$DIMENSIONS[0] = int($Config{'GENERAL'}{'GRAPH_WIDTH'});
+	}
+	if ($Config{'GENERAL'}{'GRAPH_HEIGHT'}) {
+		$DIMENSIONS[1] = int($Config{'GENERAL'}{'GRAPH_HEIGHT'});
+	}
+
+	if (exists $Config{'GENERAL'}{'PID_FILE'} && !exists $Config{'GENERAL'}{'PID_DIR'}) {
+		$Config{'GENERAL'}{'PID_DIR'} = $Config{'GENERAL'}{'PID_FILE'};
+		delete $Config{'GENERAL'}{'PID_FILE'};
+	}
+	# Create all remote host database directories if needed
+	foreach my $d (keys %REMOTEHOST) {
+		if (!exists $REMOTEHOST{$d}{'enable'}) {
+			$REMOTEHOST{$d}{'enable'} = 'yes';
+		}
+	}
+
+}
+
+sub get_help
+{
+	my $target = shift;
+
+	return if (!$target);
+
+	my $ver = $SYSSTAT_VERSION;
+        $ver =~ s/.* ([\d\.]+)$/$1/;
+        $ver =~ s/\.//g;
+
+	my $help = '';
+
+	if ($target =~ /cpudist/) {
+		if ($ver < 815) {
+			$help .= qq{
+Command: sar -u ALL
+
+      %user
+	     Percentage of CPU utilization that occurred while execut-
+	     ing at the user level (application). Note that this field
+	     includes time spent running virtual processors.
+
+      %nice
+	     Percentage of CPU utilization that occurred while execut-
+	     ing at the user level with nice priority.
+
+      %system
+	     Percentage of CPU utilization that occurred while execut-
+	     ing at the system level (kernel). Note  that  this  field
+	     includes  time  spent  servicing  hardware  and  software
+	     interrupts.
+};
+		} else {
+			$help .= qq{
+Command: sar -u ALL
+
+      %usr
+	     Percentage of CPU utilization that occurred while execut-
+	     ing at the user level (application). Note that this field
+	     does NOT include time spent running virtual processors.
+
+      %nice
+	     Percentage of CPU utilization that occurred while execut-
+	     ing at the user level with nice priority.
+
+      %sys
+	     Percentage of CPU utilization that occurred while execut-
+	     ing  at  the  system level (kernel). Note that this field
+	     does NOT include time spent servicing hardware  or  soft-
+	     ware interrupts.
+};
+		}
+	} elsif ($target =~ /cpuvirt/) {
+		$help .= qq{
+Command: sar -u ALL
+
+      %steal
+	     Percentage of time spent in involuntary wait by the  vir-
+	     tual  CPU  or  CPUs  while  the  hypervisor was servicing
+	     another virtual processor.
+
+      %guest
+	     Percentage of time spent by the CPU or CPUs to run a vir-
+	     tual processor.
+};
+	} elsif ($target =~ /cpu/) {
+		$help .= qq{
+Command: sar -u ALL
+
+      %total
+	     Percentage of time that the CPU or CPUs were used. In fact
+	     this is 100% - %idle. where %idle is percentage of time that
+	     the CPU or CPUs were idle and the system did not have an
+	     outstanding disk I/O request.
+
+      %iowait
+	     Percentage  of time that the CPU or CPUs were idle during
+	     which the system had an outstanding disk I/O request.
+};
+	} elsif ($target =~ /dev_/) {
+	
+		$help .= qq{
+If a disk is more than 60% busy over sustained periods of time, this can
+indicate overuse of that resource.
+
+Another way to identify a disk bottleneck is to use avgqu-sz >= 2.
+
+Command: sar -p -d
+
+      %util
+	     Percentage  of  CPU  time  during which I/O requests were
+	     issued to  the  device  (bandwidth  utilization  for  the
+	     device).  Device  saturation  occurs  when  this value is
+	     close to 100%.
+
+      avgqu-sz
+	     The average queue  length  of  the  requests  that  were
+	     issued to the device.
+
+};
+	} elsif ($target =~ /devio_/) {
+	
+		$help .= qq{
+Command: sar -p -d
+
+      rd_sec/s
+	     Number of sectors read from the device. The  size  of  a
+	     sector is 512 bytes.
+
+      wr_sec/s
+	     Number  of  sectors written to the device. The size of a
+	     sector is 512 bytes.
+};
+	} elsif ($target =~ /devtput_/) {
+	
+		$help .= qq{
+The value of blks/s combined with %util give an indication of the maximum I/O
+throughput of a disk, and may suggest where a I/O bottleneck can occur: 
+
+	Maximum disk throughput (KB/s) = (rd_sec/s + wr_sec/s) * 50 / %util
+
+This monitoring comes from <a href="http://osr507doc.sco.com/en/PERFORM/ident_IO_bound.html" target="_new">Identifying disk I/O-bound systems</a>
+ 
+Command: sar -p -d
+
+      rd_sec/s
+	     Number of sectors read from the device. The  size  of  a
+	     sector is 512 bytes.
+
+      wr_sec/s
+	     Number  of  sectors written to the device. The size of a
+	     sector is 512 bytes.
+
+      %util
+	     Percentage  of  CPU  time  during which I/O requests were
+	     issued to  the  device  (bandwidth  utilization  for  the
+	     device).  Device  saturation  occurs  when  this value is
+	     close to 100%.
+};
+	} elsif ($target =~ /devwork_/) {
+	
+		$help .= qq{
+I/O workload is the relation between TPS (transfers per second) and IOPS
+(I/O operations measured in seconds) of a device. If the tps returned by
+sysstat reach the maximum theoretical IOPS, your storage subsystem is saturated.
+Here is the equation to calculate the maximum theoretical IOPS:
+
+d = number of disks
+dIOPS = IOPS per disk
+%r = % of read workload
+%w = % of write workload
+F = raid factor
+
+	IOPS = (d *dIOPS) / (%r + (F * %w))
+
+the theoretical maximum IOPS for a RAID set (excluding caching of course).
+To do this you take the product of the number of disks and IOPS per disk
+divided by the sum of the %read workload and the product of the raid factor
+and %write workload. Where %read and %write are calculated from the following
+equation:
+
+	%r = rd_sec / (rd_sec + wr_sec);
+	%w = wr_sec / (rd_sec + wr_sec);
+
+This IOPS monitoring is build following the excellent article of Nick Anderson
+readable from <a href="http://www.cmdln.org/2010/04/22/analyzing-io-performance-in-linux/" target="_new">Analyzing I/O performance in Linux</a>.
+
+Note: you can considere entering into lost of performence when your storage
+system reach 70% utilization of theoretical max IOPS.
+
+rd_sec, wr_sec iand tps are obtained with the command: sar -p -d
+
+      rd_sec/s
+	     Number of sectors read from the device. The  size  of  a
+	     sector is 512 bytes.
+
+      wr_sec/s
+	     Number  of  sectors written to the device. The size of a
+	     sector is 512 bytes.
+
+      tps
+	     Indicate  the  number  of transfers per second that were
+	     issued to the device.  Multiple logical requests can  be
+	     combined  into  a  single  I/O  request to the device. A
+	     transfer is of indeterminate size.
+
+};
+
+	} elsif ($target =~ /devwait_/) {
+	
+		$help .= qq{
+I/O bottleneck:
+
+You can considere that the device is saturated with requests when high values
+of the ratio of await to svctm are reached.
+
+A significant bottleneck threshold is %util > 20% AND (20 ms < svctm < 30 ms)
+A critical bottleneck threshold is %util > 20% AND ( svctm > 30 ms)
+
+Command: sar -p -d
+
+      await
+	     The average  time  (in  milliseconds)  for  I/O  requests
+	     issued to the device to be served. This includes the time
+	     spent by the requests in queue and the time spent servic-
+	     ing them.
+
+      svctm
+	     The  average  service  time  (in  milliseconds)  for  I/O
+	     requests that were issued to the device.
+};
+	} elsif ($target =~ /filen/) {
+		$help .= qq{
+Command: sar -v
+
+      file-nr
+	     Number of file handles used by the system.
+};
+	} elsif ($target =~ /cswch/) {
+		$help .= qq{
+Command: sar -w
+
+     cswch/s
+	     Total number of context switches per second. A context switch is
+	     the switching of the CPU from one process or thread to another 
+	     such that multiple processes can share a single CPU resource. 
+};
+	} elsif ($target =~ /pswap/) {
+		$help .= qq{
+Command: sar -W
+
+      pswpin/s
+	     Total number of swap pages the system brought in per second.
+
+      pswpout/s
+	     Total number of swap pages the  system  brought  out  per
+	     second.
+};
+	} elsif ($target =~ /bio/) {
+		$help .= qq{
+Command: sar -b
+
+      bread/s
+	     Total amount of data read from the devices in blocks  per
+	     second.   Blocks  are equivalent to sectors with 2.4 ker-
+	     nels and newer and therefore have a size  of  512  bytes.
+	     With older kernels, a block is of indeterminate size.
+
+      bwrtn/s
+	     Total  amount  of  data  written to devices in blocks per
+	     second.
+};
+	} elsif ($target =~ /io/) {
+		$help .= qq{
+Command: sar -b
+
+      rtps
+	     Total number of read requests per second issued to physi-
+	     cal devices.
+
+      wtps
+	     Total number of write requests per second issued to phys-
+	     ical devices.
+};
+	} elsif ($target =~ /page/) {
+		$help .= qq{
+Command: sar -B
+
+      pgpgin/s
+	     Total number of kilobytes the system paged in  from  disk
+	     per second.  Note: With old kernels (2.2.x) this value is
+	     a number of blocks per second (and not kilobytes).
+
+      pgpgout/s
+	     Total number of kilobytes the system paged  out  to  disk
+	     per second.  Note: With old kernels (2.2.x) this value is
+	     a number of blocks per second (and not kilobytes).
+};
+	} elsif ($target =~ /work/) {
+		$help .= qq{
+Command: sar -r
+
+      kbcommit
+	     Amount  of  memory in kilobytes needed for current work-
+	     load. This is an estimate of how much RAM/swap is needed
+	     to guarantee that there never is out of memory.
+
+};
+	} elsif ($target =~ /mem/) {
+		$help .= qq{
+Command: sar -r
+
+      kbmemused
+	     Amount of used memory in kilobytes. This does not take
+	     into account memory used by the kernel itself.
+
+      kbbuffers
+	     Amount of memory used as buffers by the kernel in kilo-
+	     bytes.
+
+      kbcached
+	     Amount of memory used to cache data by the kernel in
+	     kilobytes.
+
+	Here Total memory used is kbmemused, memory cached is kbcached
+	and Memory used is (kbmemused - kbbuffers - kbcached).
+};
+	} elsif ($target =~ /swap/) {
+		$help .= qq{
+Command: sar -S
+
+      %swpused
+	     Percentage of used swap space.
+
+      %swpcad
+	     Percentage  of  cached  swap  memory  in  relation to the
+	     amount of used swap space.
+
+	     The cached swap memory is memory that once was swapped out,
+	     is swapped back in but still also is in the swap area (if
+	     memory is needed it doesn't need to be swapped out again because
+	     it is already in the swap area. This saves I/O).
+
+};
+	} elsif ($target =~ /tcpseg/) {
+		$help .= qq{
+Command: sar -n TCP
+
+      iseg/s
+	     The  total  number  of  segments  received  per  second,
+	     including  those  received  in  error [tcpInSegs].  This
+	     count includes segments  received  on  currently  estab-
+	     lished connections.
+
+      oseg/s
+	     The  total number of segments sent per second, including
+	     those on current connections but  excluding  those  con-
+	     taining only retransmitted octets [tcpOutSegs].
+};
+	} elsif ($target =~ /tcp/) {
+		$help .= qq{
+Command: sar -n TCP
+
+      active/s
+	     The number of times TCP connections have made  a  direct
+	     transition  to  the SYN-SENT state from the CLOSED state
+	     per second [tcpActiveOpens].
+
+      passive/s
+	     The number of times TCP connections have made  a  direct
+	     transition  to  the SYN-RCVD state from the LISTEN state
+	     per second [tcpPassiveOpens].
+};
+	} elsif ($target =~ /tcp/) {
+		$help .= qq{
+Command: sar -I SUM
+
+	Total number of interrupts received per second.
+};
+	} elsif ($target =~ /socktw/) {
+		$help .= qq{
+Command: sar -n SOCK
+
+     tcp-tw
+	     Number of TCP sockets in TIME_WAIT state.
+};
+	} elsif ($target =~ /socktw/) {
+		$help .= qq{
+Command: sar -w
+
+      proc/s
+	     Total number of tasks created per second.
+
+};
+	} elsif ($target =~ /sock/) {
+		$help .= qq{
+Command: sar -n SOCK
+
+      totsck
+	     Total number of sockets used by the system.
+
+      tcpsck
+	     Number of TCP sockets currently in use.
+
+      udpsck
+	     Number of UDP sockets currently in use.
+};
+	} elsif ($target =~ /vmeff/) {
+		$help .= qq{
+Command: sar -B
+
+      %vmeff
+	     Calculated  as pgsteal / pgscan, this is a metric of the
+	     efficiency of page reclaim. If  it  is  near  100%  then
+	     almost  every  page  coming off the tail of the inactive
+	     list is being reaped. If it gets too low (e.g. less than
+	     30%)  then the virtual memory is having some difficulty.
+	     This field is displayed as zero if no  pages  have  been
+	     scanned during the interval of time.
+
+      pgscand/s
+	     Number of pages scanned directly per second.
+
+      pgsteal/s
+	     Number  of  pages  the  system  has reclaimed from cache
+	     (pagecache and swapcache) per second to satisfy its mem-
+	     ory demands.
+
+};
+	} elsif ($target =~ /load/) {
+	
+		$help .= qq{
+Command: sar -p
+
+      ldavg-1
+	     System load average for the last minute.  The load average
+             is calculated as the average number of runnable  or  run‐
+	     ning tasks (R state), and the number of tasks in uninter-
+             ruptible sleep (D state) over the specified interval.
+
+      ldavg-5
+	     System load average for the past 5 minutes.
+
+      ldavg-15
+	     System load average for the past 15 minutes.
+
+};
+	} elsif ($target =~ /pcrea/) {
+	
+		$help .= qq{
+Command: sar -p
+
+      runq-sz
+	     Run queue length (number of tasks waiting for run time).
+
+};
+	} elsif ($target =~ /^disk/) {
+	
+		$help .= qq{
+Command: df -lkP -x tmpfs 
+
+	df displays the amount of disk space available on all currently
+	mounted file systems
+
+	-k     like --block-size=1K
+
+	-l, --local
+	      limit listing to local file systems
+
+	-P, --portability
+	      use the POSIX output format
+
+	-x, --exclude-type=TYPE
+	      limit listing to file systems not of type TYPE
+
+};
+	} elsif ($target =~ /^err_(.*)/) {
+		$help .= qq{
+Command: sar -n EDEV
+
+      rxerr/s
+	     Total number of bad packets received per second.
+
+      txerr/s
+	     Total number of errors that happened per second while transmitting packets.
+
+};
+	} elsif ($target =~ /^coll_(.*)/) {
+		$help .= qq{
+Command: sar -n EDEV
+
+      coll/s
+	     Number of collisions that happened per second while transmitting packets.
+
+};
+	} elsif ($target =~ /^drop_(.*)/) {
+		$help .= qq{
+Command: sar -n EDEV
+
+      rxdrop/s
+	     Number of received packets dropped per second because of a lack of space
+             in linux buffers.
+
+      txdrop/s
+	     Number of transmitted packets dropped per second because of a lack of
+	     space in linux buffers.
+
+};
+	} elsif ($target =~ /^net_(.*)/) {
+		$help .= qq{
+Command: sar -n DEV
+
+      rxkB/s
+	     Total number of kilobytes received per second.
+
+      txkB/s
+	     Total number of kilobytes transmitted per second.
+
+};
+	} elsif ($target =~ /^intr/) {
+		$help .= qq{
+Command: sar -I SUM
+
+	intr/s
+	     Report statistics for the total number of interrupts received per second.
+
+};
+	} elsif ($target =~ /^share/) {
+		$help .= qq{
+Command: df -k /dev/shm
+
+	df displays the amount of disk space used on the /dev/shm file system.
+
+	-k     like --block-size=1K
+
+};
+	}
+
+	return "<pre>$help</pre>\n<hr>\n" if ($help);
+}
+
+sub htmlHeader
+{
+	my ($title)	= @_;
+
+	my $date = localtime(time);
+
+	my $ret = qq{<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head>
+<title>$title</title>
+<meta NAME="robots" CONTENT="noindex,nofollow">
+<meta HTTP-EQUIV="Pragma" CONTENT="no-cache">
+<meta HTTP-EQUIV="Cache-Control" content="no-cache">
+<meta HTTP-EQUIV="Expires" CONTENT="$date">
+<meta HTTP-EQUIV="Generator" CONTENT="Sysusage $VERSION">
+<meta HTTP-EQUIV="Date" CONTENT="$date">
+<meta HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=utf-8">
+<link rel="stylesheet" type="text/css" href="$Config{'GENERAL'}{'RESRC_URL'}sysusage.css" />
+<link rel="icon" href="$Config{'GENERAL'}{'RESRC_URL'}favicon.ico" type="image/x-icon" />
+<link rel="shortcut icon" href="$Config{'GENERAL'}{'RESRC_URL'}favicon.ico" type="image/x-icon" /> 
+<script type="text/javascript" src="$Config{'GENERAL'}{'RESRC_URL'}sysusage.js"></script>
+</head>
+<body>
+<div id="bodier">
+<a href="start.html" id="logo" target="windatas"><img src="$Config{'GENERAL'}{'RESRC_URL'}sysusage-logo.png"></a>
+<div id="menu" class="yuimenubar yuimenubarnav">
+<div class="bd">
+<ul>
+};
+
+	# Get all CPUs section
+	my @cpus = ();
+	foreach my $link (sort { "$a->{section}$a->{title}" cmp "$b->{section}$b->{title}" } @LINKS) {
+		if ($link->{section} =~ /CPU(\d+)/) {
+			push(@cpus, $link->{section}) if (!grep(/^$link->{section}$/, @cpus));
+		}
+	}
+	my @devices = ();
+	foreach my $link (sort { "$a->{section}$a->{title}" cmp "$b->{section}$b->{title}" } @LINKS) {
+		if ($link->{section} =~ /Device/) {
+			push(@devices, $link->{section}) if (!grep(/^$link->{section}$/, @devices));
+		}
+	}
+	my @nets = ();
+	foreach my $link (sort { "$a->{section}$a->{title}" cmp "$b->{section}$b->{title}" } @LINKS) {
+		if ($link->{section} =~ /Network/) {
+			push(@nets, $link->{section}) if (!grep(/^$link->{section}$/, @nets));
+		}
+	}
+	my @plugmenus = ();
+	foreach my $link (sort { "$a->{plugmenu}" cmp "$b->{plugmenu}" } @LINKS) {
+		next if (!$link->{plugmenu});
+		push(@plugmenus, $link->{plugmenu}) if (!grep(/^$link->{plugmenu}$/, @plugmenus));
+	}
+
+	my @menus = ('CPU', 'Memory', 'I/O', 'Network', 'Device', 'Files', 'Process', 'Plugins');
+	$ret .= qq{
+};
+	my $menulast = '';
+	foreach my $m (@menus) {
+		next if ( ($m eq 'Plugins') && (scalar keys %PLUGIN == 0));
+		$menulast = ' menubaritemlast' if (($m eq 'Plugins') || ((scalar keys %PLUGIN == 0) && ($m eq $menus[-2])));
+		$ret .= "<li class=\"yuimenubaritem$menulast\" id=\"$m\"><strong>$m</strong>\n";
+		$ret .= "\t<div class=\"yuimenu\"><div class=\"bd\"><ul>\n";
+		if ($m eq 'CPU') {
+			$ret .= "\t<li><a href=\"#\">CPU All</a>\n";
+			$ret .= "\t\t<div class=\"yuimenu\"><div class=\"bd\"><ul>\n";
+			foreach my $link (sort { "$a->{section}$a->{title}" cmp "$b->{section}$b->{title}" } @LINKS) {
+				if ($link->{section} eq 'CPUAll') {
+					$link->{title} =~ s/^CPU All (.)/\U$1\E/;
+					$ret .= "\t\t<li><a href=\"$link->{url}\" target=\"windatas\">$link->{title}</a></li>\n";
+				}
+			}
+			$ret .= "\t\t</ul></div></div>\n";
+			$ret .= "\t</li>\n";
+			foreach my $cpu (@cpus) {
+				$ret .= "\t<li><a href=\"#\">$cpu</a>\n";
+				$ret .= "\t\t<div class=\"yuimenu\"><div class=\"bd\"><ul>\n";
+				foreach my $link (sort { "$a->{section}$a->{title}" cmp "$b->{section}$b->{title}" } @LINKS) {
+					if ($link->{section} eq $cpu) {
+						my $tmp = $cpu;
+						$tmp =~ s/CPU(.*)/CPU $1/;
+						$link->{title} =~ s/^$tmp (.)/\U$1\E/;
+						$ret .= "\t\t<li><a href=\"$link->{url}\" target=\"windatas\">$link->{title}</a></li>\n";
+					}
+				}
+				$ret .= "\t\t</ul></div></div>\n";
+				$ret .= "\t</li>\n";
+			}
+			@cpus = ();
+		} elsif ($m eq 'Device') {
+			foreach my $device (@devices) {
+				my $tmp = $device;
+				$tmp =~ s/^Device //;
+				$ret .= "\t<li><a href=\"#\">$tmp</a>\n";
+				$ret .= "\t\t<div class=\"yuimenu\"><div class=\"bd\"><ul>\n";
+				foreach my $link (sort { "$a->{title}" cmp "$b->{title}" } @LINKS) {
+					if ($link->{section} eq $device) {
+						$ret .= "\t\t<li><a href=\"$link->{url}\" target=\"windatas\">$link->{title}</a></li>\n";
+					}
+				}
+				$ret .= "\t\t</ul></div></div>\n";
+				$ret .= "\t</li>\n";
+			}
+			@devices = ();
+		} elsif ($m eq 'Network') {
+			foreach my $net (@nets) {
+				my $tmp = $net;
+				$tmp =~ s/^Network All/Sockets/;
+				$tmp =~ s/^Network //;
+				$ret .= "\t<li><a href=\"#\">$tmp</a>\n";
+				$ret .= "\t\t<div class=\"yuimenu\"><div class=\"bd\"><ul>\n";
+				foreach my $link (sort { "$a->{title}" cmp "$b->{title}" } @LINKS) {
+					if ($link->{section} eq $net) {
+						$link->{title} =~ s/Network interface [^\s]+ //;
+						$ret .= "\t\t<li><a href=\"$link->{url}\" target=\"windatas\">$link->{title}</a></li>\n";
+					}
+				}
+				$ret .= "\t\t</ul></div></div>\n";
+				$ret .= "\t</li>\n";
+			}
+			@nets = ();
+		} elsif ($m eq 'Plugins') {
+			foreach my $menu (@plugmenus) {
+				$ret .= "\t<li><a href=\"#\">$menu</a>\n";
+				$ret .= "\t\t<div class=\"yuimenu\"><div class=\"bd\"><ul>\n";
+				foreach my $link (sort { "$a->{title}" cmp "$b->{title}" } @LINKS) {
+					if ($link->{plugmenu} eq $menu) {
+						$ret .= "\t\t<li><a href=\"$link->{url}\" target=\"windatas\">$link->{title}</a></li>\n";
+					}
+				}
+				$ret .= "\t\t</ul></div></div>\n";
+				$ret .= "\t</li>\n";
+			}
+			@plugmenus = ();
+		} else {
+			foreach my $link (sort { "$a->{section}$a->{title}" cmp "$b->{section}$b->{title}" } @LINKS) {
+				if ($link->{section} =~ /$m/) {
+					$link->{title} =~ s/Memory needed for workload/Workload memory/;
+					$link->{title} =~ s/^(I\/O.*) usage$/$1/;
+					$link->{title} =~ s/ per second$//;
+					$link->{title} =~ s/ process$//;
+					$ret .= "\t\t<li><a href=\"$link->{url}\" target=\"windatas\">$link->{title}</a></li>\n";
+				}
+			}
+		}
+		$ret .= "\t</ul></div></div></li>\n";
+	}
+	$ret .= "</ul></div></div>\n";
+
+	return $ret;
+}
+
+sub createMenu
+{
+	my ($title, $dir) = @_;
+
+	unless(open(HFILE, ">$Config{'GENERAL'}{'DEST_DIR'}$dir/index.html")) {
+		die "Error: can't write to file $Config{'GENERAL'}{'DEST_DIR'}$dir/index.html, $!\n";
+		unlink("$Config{'GENERAL'}{'PID_DIR'}/sysusagegraph.pid");
+	}
+	print HFILE &htmlHeader($title);
+	print HFILE qq{
+	<iframe name="windatas" src="start.html" width="1000" height="700" frameborder="0" border="0"></iframe>
+};
+
+	print HFILE qq{
+</div>
+</body>
+</html>
+};
+
+	return "$Config{'GENERAL'}{'DEST_DIR'}$dir/index.html";
+}
+
+sub format_size
+{
+	my $val = shift;
+
+        if ($val > 1000000000000) {
+                return  sprintf('%.2f T', $val/1000000000000);
+        } elsif ($val > 1000000000) {
+                return  sprintf('%.2f G', $val/1000000000);
+        } elsif ($val > 1000000) {
+                return  sprintf('%.2f M', $val/1000000);
+        } elsif ($val > 1000) {
+                return  sprintf('%.2f K', $val/1000);
+        }
+	return  sprintf('%.2f', $val);
+}
+
+sub pageHeader
+{
+	my ($target, $title, $dir)	= @_;
+
+	my $date = localtime(time);
+
+	my $ret = <<EOF;
+<!DOCTYPE html>
+<html>
+<head>
+<title>$title</title>
+<meta NAME="robots" CONTENT="noindex,nofollow">
+<meta HTTP-EQUIV="Refresh" CONTENT="$Config{'GENERAL'}{'INTERVAL'}">
+<meta HTTP-EQUIV="Pragma" CONTENT="no-cache">
+<meta HTTP-EQUIV="Cache-Control" content="no-cache">
+<meta HTTP-EQUIV="Expires" CONTENT="$date">
+<meta HTTP-EQUIV="Generator" CONTENT="Sysusage $VERSION">
+<meta HTTP-EQUIV="Date" CONTENT="$date">
+<link rel="shortcut icon" href="$Config{'GENERAL'}{'RESRC_URL'}favicon.ico" type="image/x-icon" /> 
+  <!-- Use Compatibility mode in IE -->
+  <meta http-equiv="X-UA-Compatible" content="IE=EmulateIE7" >
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+
+  <!--[if IE]><script language="javascript" type="text/javascript" src="$Config{'GENERAL'}{'RESRC_URL'}jqplot/excanvas.min.js"></script><![endif]-->
+  <link rel="stylesheet" type="text/css" href="$Config{'GENERAL'}{'RESRC_URL'}jqplot/jquery.jqplot.css" />
+  <link rel="stylesheet" type="text/css" href="$Config{'GENERAL'}{'RESRC_URL'}jqplot/jqplot.css" />
+  <style type="text/css">
+    .ui-tabs-nav {
+      font-size: 12px;
+    }
+    .ui-tabs-panel {
+      font-size: 14px;
+    }
+    .jqplot-target {
+      font-size: 18px;
+    }
+    body > table {
+      width: 900px;
+      margin-left:auto;
+      margin-right: auto;
+    }
+    body > table, body > table > tr, body > table > td {
+      width: 900px;
+      border: none;
+    }
+    td>p {
+      font-family:"Trebuchet MS",Arial,Helvetica,sans-serif;
+      font-size: 14px;
+    }
+    .uitabsbar {
+        display: block;
+        visibility: hidden;
+    }
+  </style>
+
+  <!-- BEGIN: load jquery -->
+  <script language="javascript" type="text/javascript" src="$Config{'GENERAL'}{'RESRC_URL'}jqplot/jquery-1.4.2.min.js"></script>
+  <!-- END: load jquery -->
+  <!-- BEGIN: load jqplot -->
+  <script language="javascript" type="text/javascript" src="$Config{'GENERAL'}{'RESRC_URL'}jqplot/jquery.jqplot.js"></script>
+  <script language="javascript" type="text/javascript" src="$Config{'GENERAL'}{'RESRC_URL'}jqplot/plugins/jqplot.enhancedLegendRenderer.js"></script>
+  <script language="javascript" type="text/javascript" src="$Config{'GENERAL'}{'RESRC_URL'}jqplot/plugins/jqplot.logAxisRenderer.js"></script>
+  <script language="javascript" type="text/javascript" src="$Config{'GENERAL'}{'RESRC_URL'}jqplot/plugins/jqplot.dateAxisRenderer.js"></script>
+  <script language="javascript" type="text/javascript" src="$Config{'GENERAL'}{'RESRC_URL'}jqplot/plugins/jqplot.canvasTextRenderer.min.js"></script>
+  <script language="javascript" type="text/javascript" src="$Config{'GENERAL'}{'RESRC_URL'}jqplot/plugins/jqplot.canvasAxisTickRenderer.min.js"></script>
+  <script language="javascript" type="text/javascript" src="$Config{'GENERAL'}{'RESRC_URL'}jqplot/plugins/jqplot.categoryAxisRenderer.min.js"></script>
+  <script language="javascript" type="text/javascript" src="$Config{'GENERAL'}{'RESRC_URL'}jqplot/plugins/jqplot.highlighter.js"></script>
+  <script language="javascript" type="text/javascript" src="$Config{'GENERAL'}{'RESRC_URL'}jqplot/plugins/jqplot.canvasAxisLabelRenderer.min.js"></script>
+  <script language="javascript" type="text/javascript" src="$Config{'GENERAL'}{'RESRC_URL'}jqplot/plugins/jqplot.cursor.js"></script>
+  <script language="javascript" type="text/javascript" src="$Config{'GENERAL'}{'RESRC_URL'}jqplot/plugins/jqplot.rrdAxisTickRenderer.js"></script>
+  <link type="text/css" href="$Config{'GENERAL'}{'RESRC_URL'}jqplot/jquery-ui/css/ui-lightness/jquery-ui-1.8.1.custom.css" rel="Stylesheet" />       
+  <script language="javascript" type="text/javascript" src="$Config{'GENERAL'}{'RESRC_URL'}jqplot/jquery-ui/js/jquery-ui-1.8.1.custom.min.js"></script>
+  <!-- END: load jqplot -->
+
+  <script type="text/javascript" language="javascript">
+  \$(document).ready(function() {
+	\$.jqplot.config.enablePlugins = true;
+	\$.jqplot.config.defaultWidth = $DIMENSIONS[0];
+	\$.jqplot.config.defaultHeigh = $DIMENSIONS[1];
+	\$('#tabs').tabs();
+
+EOF
+	#----------------------------------------------------------------
+	# Fetch real values from the RRD database for the current day
+	#----------------------------------------------------------------
+	my $cur_time = time();                # set current time
+	my $end_time = $cur_time - 86400;     # set end time to 24 hours ago
+	my ($start,$step,$ds_names,$data) =
+	RRDs::fetch("$Config{'GENERAL'}{'DATA_DIR'}$dir/$target", "MAX", "-r", $Config{'GENERAL'}{'INTERVAL'}, "-s", "$end_time", "-e", "$cur_time");
+	my $time_variable = $end_time;
+	my $min_datehour = '';
+	my $max__datehour = '';
+	my $ftime = '';
+	my @plotdatas = ();
+	my $maxvalue = 0;
+	my %vals_current = ();
+	my %vals_legend = ();
+	my $count = 0;
+	foreach my $line (@$data) {
+		($ftime, $min_datehour, $max__datehour) = &format_date($time_variable, $min_datehour, 'day');
+		$time_variable = $time_variable + $step;
+		my $found = 0;
+		for (my $i = 0; $i <= $#{$line}; $i++) {
+			push(@{$plotdatas[$i]}, "['$ftime'," . sprintf("%.2f", ($line->[$i] || 0)) . "]");
+			$maxvalue = $line->[$i] if ($line->[$i] > $maxvalue);
+			$vals_legend{$i}{max} =  sprintf("%.2f", $line->[$i]) if ($line->[$i] > $vals_legend{$i}{max});
+			$vals_legend{$i}{average} += $line->[$i];
+			if ($line->[$i] ne '') {
+				$vals_current{$i}{current} =  sprintf("%.2f", $line->[$i]);
+				$found++;
+			}
+			$vals_legend{$i}{max} ||= '0.00';
+			$vals_current{$i}{current} ||= '0.00';
+		}
+		$count++ if ($found);
+	}
+	foreach my $i (keys %vals_legend) {
+		if ($count) {
+			$vals_legend{$i}{average} = sprintf("%.2f", ($vals_legend{$i}{average}/$count));
+		} else {
+			$vals_legend{$i}{average} = '0.00';
+		}
+	}
+	if ($maxvalue =~ /^(\d)([\d\.]+)/) {
+		my $f = $1+1;
+		my $r = $2;
+		$r =~ s/\d/0/g;
+		$maxvalue = $f . "$r";
+	} else {
+		$maxvalue += 1;
+	}
+	$maxvalue = 10 if ($maxvalue < 10);
+	my $nbar = '';
+	$data = '';
+	my %conv = ( '0' => 'legend_A', '1' => 'legend_B', '2' => 'legend_C');
+	for (my $i = 0; $i <= $#plotdatas; $i++) {
+		if ($LABELS{$target}{$conv{$i}}) {
+			$data .= "\tgrafline" . ($i+1) . " = [ " . join(',', @{$plotdatas[$i]}) . " ];\n";
+			$nbar .= ',' if ($nbar);
+			$nbar .= "grafline" . ($i+1);
+		}
+	}
+	@plotdatas = ();
+	my $axedef = '';
+	if ($LABELS{$target}{legend1} eq 'percent') {
+		$maxvalue = 100;
+	}
+	my $div = $maxvalue / 10;
+	my $i = 0;
+	my @ticks = ();
+	while ($i <= $maxvalue) {
+		push(@ticks, "[$i, '" . &format_size($i) . "']");
+		$i += $div;
+	} 
+	$axedef = 'ticks: [' . join(',', @ticks) . '],';
+	$maxvalue = 'max: ' . $maxvalue . ',';
+	my $format = '%d';
+	$format = '%.2f' if (($LABELS{$target}{legend1} eq 'float') || ($LABELS{$target}{legend1} eq 'long'));
+	$ret .= <<EOF;
+$data
+	plotday = \$.jqplot('chartday', [$nbar],
+	{
+		legend: {
+			renderer: \$.jqplot.EnhancedLegendRenderer,
+			show:true,
+			placement: 'outsideGrid',
+			location: 's',
+		},
+		title: '$LABELS{$target}{title}',
+		series: [
+			{
+			label: '$LABELS{$target}{legend_A}: current=$vals_current{0}{current}, max=$vals_legend{0}{max}, average=$vals_legend{0}{average} - ',
+			lineWidth:1,
+			neighborThreshold: 0,
+			showMarker:false
+			},
+			{
+			label: '$LABELS{$target}{legend_B}: current=$vals_current{1}{current}, max=$vals_legend{1}{max}, average=$vals_legend{1}{average} - ',
+			lineWidth:1,
+			neighborThreshold: 0,
+			showMarker:false
+			},
+			{
+			label: '$LABELS{$target}{legend_C}: current=$vals_current{2}{current}, max=$vals_legend{2}{max}, average=$vals_legend{2}{average} - ',
+			lineWidth:1,
+			neighborThreshold: 0,
+			showMarker:false
+			}
+		],
+		axes: {
+			xaxis:
+			{
+				showLabel: false,
+				label: "Time interval",
+				renderer:\$.jqplot.DateAxisRenderer,
+				min: '$min_datehour',
+				max: '$max__datehour',
+				labelRenderer: \$.jqplot.CanvasAxisLabelRenderer,
+				rendererOptions:{tickRenderer:\$.jqplot.CanvasAxisTickRenderer},
+				tickInterval: "2 hours",
+				tickOptions:
+				{
+					formatString:"\%H:\%M",
+				}
+			},
+			yaxis:
+			{
+				label: "$LABELS{$target}{vlabel}",
+				autoscale: true,
+				tickOptions:
+				{
+					formatString:'$format',
+				},
+				labelRenderer: \$.jqplot.CanvasAxisLabelRenderer,
+				min: 0,
+				$maxvalue
+				$axedef
+				pad: 0,
+				numberTicks: 10
+			},
+		},
+		cursor:{
+			show:true,
+			zoom:true,
+			constrainZoomTo:'x',
+			showVerticalLine:true,
+			showHorizontalLine:false,
+			showCursorLegend:true,
+			showTooltip: false
+		},
+		highlighter:{show: false}
+	});
+EOF
+	#----------------------------------------------------------------
+	# Fetch real values from the RRD database for the current week
+	#----------------------------------------------------------------
+	$data = '';
+	$end_time = $cur_time - 604800;     # set end time to 7*24 hours ago
+	($start,$step,$ds_names,$data) =
+	RRDs::fetch("$Config{'GENERAL'}{'DATA_DIR'}$dir/$target", "MAX", "-r", $Config{'GENERAL'}{'INTERVAL'}, "-s", "$end_time", "-e", "$cur_time");
+	$time_variable = $end_time;
+	$min_datehour = '';
+	$max__datehour = '';
+	$ftime = '';
+        %vals_legend = ();
+        $count = 0;
+	foreach my $line (@$data) {
+		($ftime, $min_datehour, $max__datehour) = &format_date($time_variable, $min_datehour,'week');
+		$time_variable = $time_variable + $step;
+		my $found = 0;
+		for (my $i = 0; $i <= $#{$line}; $i++) {
+			push(@{$plotdatas[$i]}, "['$ftime'," . sprintf("%.2f", ($line->[$i] || 0)) . "]");
+			$vals_legend{$i}{max} =  sprintf("%.2f", $line->[$i]) if ($line->[$i] > $vals_legend{$i}{max});
+			$vals_legend{$i}{average} += $line->[$i];
+			if ($line->[$i] ne '') {
+				$found++;
+			}
+			$vals_legend{$i}{max} ||= '0.00';
+		}
+		$count++ if ($found);
+	}
+	foreach my $i (keys %vals_legend) {
+		if ($count) {
+			$vals_legend{$i}{average} = sprintf("%.2f", ($vals_legend{$i}{average}/$count));
+		} else {
+			$vals_legend{$i}{average} = '0.00';
+		}
+	}
+	$nbar = '';
+	$data = '';
+	for (my $i = 0; $i <= $#plotdatas; $i++) {
+		if ($LABELS{$target}{$conv{$i}}) {
+			$data .= "\tgrafline" . ($i+1) . " = [ " . join(',', @{$plotdatas[$i]}) . " ];\n";
+			$nbar .= ',' if ($nbar);
+			$nbar .= "grafline" . ($i+1);
+		}
+	}
+	my $max = '';
+	@plotdatas = ();
+	$ret .= <<EOF;
+$data
+	plotweek = \$.jqplot('chartweek', [$nbar],
+	{
+		legend: {
+			renderer: \$.jqplot.EnhancedLegendRenderer,
+			show:true,
+			placement: 'outsideGrid',
+			location: 's',
+		},
+		title: '$LABELS{$target}{title}',
+		series: [
+			{
+			label: '$LABELS{$target}{legend_A}: current=$vals_current{0}{current}, max=$vals_legend{0}{max}, average=$vals_legend{0}{average}',
+			lineWidth:1,
+			neighborThreshold: 0,
+			showMarker:false
+			},
+			{
+			label: '$LABELS{$target}{legend_B}: current=$vals_current{1}{current}, max=$vals_legend{1}{max}, average=$vals_legend{1}{average}',
+			lineWidth:1,
+			neighborThreshold: 0,
+			showMarker:false
+			},
+			{
+			label: '$LABELS{$target}{legend_C}: current=$vals_current{2}{current}, max=$vals_legend{2}{max}, average=$vals_legend{2}{average}',
+			lineWidth:1,
+			neighborThreshold: 0,
+			showMarker:false
+			}
+		],
+		axes: {
+			xaxis:
+			{
+				showLabel: false,
+				label: "Time interval",
+				renderer:\$.jqplot.DateAxisRenderer,
+				min: '$min_datehour',
+				max: '$max__datehour',
+				labelRenderer: \$.jqplot.CanvasAxisLabelRenderer,
+				rendererOptions:{tickRenderer:\$.jqplot.CanvasAxisTickRenderer},
+				tickInterval: "1 days",
+				tickOptions:
+				{
+					formatString:"\%a \%b \%d",
+				}
+			},
+			yaxis:
+			{
+				label: "$LABELS{$target}{vlabel}",
+				autoscale: true,
+				tickOptions:
+				{
+					formatString:'$format',
+					formatter: \$.jqplot.tickNumberFormatter
+				},
+				labelRenderer: \$.jqplot.CanvasAxisLabelRenderer,
+				min: 0,
+				$max
+				$axedef
+				pad: 0,
+				numberTicks: 10
+			},
+		},
+		cursor:{zoom:true,constrainZoomTo:'x'},
+		highlighter:{show:true}
+	});
+EOF
+	#----------------------------------------------------------------
+	# Fetch real values from the RRD database for the current month
+	#----------------------------------------------------------------
+	$data = '';
+	$end_time = $cur_time - 2678400;     # set end time to 31*24 hours ago
+	($start,$step,$ds_names,$data) =
+	RRDs::fetch("$Config{'GENERAL'}{'DATA_DIR'}$dir/$target", "MAX", "-r", $Config{'GENERAL'}{'INTERVAL'}, "-s", "$end_time", "-e", "$cur_time");
+	$time_variable = $end_time;
+	$min_datehour = '';
+	$max__datehour = '';
+	$ftime = '';
+        %vals_legend = ();
+        $count = 0;
+	foreach my $line (@$data) {
+		($ftime, $min_datehour, $max__datehour) = &format_date($time_variable, $min_datehour,'month');
+		$time_variable = $time_variable + $step;
+		my $found = 0;
+		for (my $i = 0; $i <= $#{$line}; $i++) {
+			push(@{$plotdatas[$i]}, "['$ftime'," . sprintf("%.2f", ($line->[$i] || 0)) . "]");
+			$vals_legend{$i}{max} =  sprintf("%.2f", $line->[$i]) if ($line->[$i] > $vals_legend{$i}{max});
+			$vals_legend{$i}{average} += $line->[$i];
+			if ($line->[$i] ne '') {
+				$found++;
+			}
+			$vals_legend{$i}{max} ||= '0.00';
+		}
+		$count++ if ($found);
+	}
+	foreach my $i (keys %vals_legend) {
+		if ($count) {
+			$vals_legend{$i}{average} = sprintf("%.2f", ($vals_legend{$i}{average}/$count));
+		} else {
+			$vals_legend{$i}{average} = '0.00';
+		}
+	}
+	$nbar = '';
+	$data = '';
+	for (my $i = 0; $i <= $#plotdatas; $i++) {
+		if ($LABELS{$target}{$conv{$i}}) {
+			$data .= "\tgrafline" . ($i+1) . " = [ " . join(',', @{$plotdatas[$i]}) . " ];\n";
+			$nbar .= ',' if ($nbar);
+			$nbar .= "grafline" . ($i+1);
+		}
+	}
+	@plotdatas = ();
+	$ret .= <<EOF;
+$data
+	plotmonth = \$.jqplot('chartmonth', [$nbar],
+	{
+		legend: {
+			renderer: \$.jqplot.EnhancedLegendRenderer,
+			show:true,
+			placement: 'outsideGrid',
+			location: 's',
+		},
+		title: '$LABELS{$target}{title}',
+		series: [
+			{
+			label: '$LABELS{$target}{legend_A}: current=$vals_current{0}{current}, max=$vals_legend{0}{max}, average=$vals_legend{0}{average}',
+			lineWidth:1,
+			neighborThreshold: 0,
+			showMarker:false
+			},
+			{
+			label: '$LABELS{$target}{legend_B}: current=$vals_current{1}{current}, max=$vals_legend{1}{max}, average=$vals_legend{1}{average}',
+			lineWidth:1,
+			neighborThreshold: 0,
+			showMarker:false
+			},
+			{
+			label: '$LABELS{$target}{legend_C}: current=$vals_current{2}{current}, max=$vals_legend{2}{max}, average=$vals_legend{2}{average}',
+			lineWidth:1,
+			neighborThreshold: 0,
+			showMarker:false
+			}
+		],
+		axes: {
+			xaxis:
+			{
+				showLabel: false,
+				label: "Time interval",
+				renderer:\$.jqplot.DateAxisRenderer,
+				min: '$min_datehour',
+				max: '$max__datehour',
+				labelRenderer: \$.jqplot.CanvasAxisLabelRenderer,
+				rendererOptions:{tickRenderer:\$.jqplot.CanvasAxisTickRenderer},
+				tickInterval: "7 days",
+				tickOptions:
+				{
+					formatString:"\%b \%d",
+				}
+			},
+			yaxis:
+			{
+				label: "$LABELS{$target}{vlabel}",
+				autoscale: true,
+				tickOptions:
+				{
+					formatString:'$format',
+					formatter: \$.jqplot.tickNumberFormatter
+				},
+				labelRenderer: \$.jqplot.CanvasAxisLabelRenderer,
+				min: 0,
+				$max
+				$axedef
+				pad: 0,
+				numberTicks: 10
+			},
+		},
+		cursor:{zoom:true,constrainZoomTo:'x'},
+		highlighter:{show:true}
+	});
+EOF
+	#----------------------------------------------------------------
+	# Fetch real values from the RRD database for the current year
+	#----------------------------------------------------------------
+	$data = '';
+	$end_time = $cur_time - 31536000;     # set end time to 365*24 hours ago
+	($start,$step,$ds_names,$data) =
+	RRDs::fetch("$Config{'GENERAL'}{'DATA_DIR'}$dir/$target", "MAX", "-r", $Config{'GENERAL'}{'INTERVAL'}, "-s", "$end_time", "-e", "$cur_time");
+	$time_variable = $end_time;
+	$min_datehour = '';
+	$max__datehour = '';
+	$ftime = '';
+        %vals_legend = ();
+        $count = 0;
+	foreach my $line (@$data) {
+		($ftime, $min_datehour, $max__datehour) = &format_date($time_variable, $min_datehour,'month');
+		$time_variable = $time_variable + $step;
+		my $found = 0;
+		for (my $i = 0; $i <= $#{$line}; $i++) {
+			push(@{$plotdatas[$i]}, "['$ftime'," . sprintf("%.2f", ($line->[$i] || 0)) . "]");
+			$vals_legend{$i}{max} =  sprintf("%.2f", $line->[$i]) if ($line->[$i] > $vals_legend{$i}{max});
+			$vals_legend{$i}{average} += $line->[$i];
+			if ($line->[$i] ne '') {
+				$found++;
+			}
+			$vals_legend{$i}{max} ||= '0.00';
+		}
+		$count++ if ($found);
+	}
+	foreach my $i (keys %vals_legend) {
+		if ($count) {
+			$vals_legend{$i}{average} = sprintf("%.2f", ($vals_legend{$i}{average}/$count));
+		} else {
+			$vals_legend{$i}{average} = '0.00';
+		}
+	}
+	$nbar = '';
+	$data = '';
+	for (my $i = 0; $i <= $#plotdatas; $i++) {
+		if ($LABELS{$target}{$conv{$i}}) {
+			$data .= "\tgrafline" . ($i+1) . " = [ " . join(',', @{$plotdatas[$i]}) . " ];\n";
+			$nbar .= ',' if ($nbar);
+			$nbar .= "grafline" . ($i+1);
+		}
+	}
+	@plotdatas = ();
+	$ret .= <<EOF;
+$data
+	plotyear = \$.jqplot('chartyear', [$nbar],
+	{
+		legend: {
+			renderer: \$.jqplot.EnhancedLegendRenderer,
+			show:true,
+			placement: 'outsideGrid',
+			location: 's',
+		},
+		title: '$LABELS{$target}{title}',
+		series: [
+			{
+			label: '$LABELS{$target}{legend_A}: current=$vals_current{0}{current}, max=$vals_legend{0}{max}, average=$vals_legend{0}{average}',
+			lineWidth:1,
+			neighborThreshold: 0,
+			showMarker:false
+			},
+			{
+			label: '$LABELS{$target}{legend_B}: current=$vals_current{1}{current}, max=$vals_legend{1}{max}, average=$vals_legend{1}{average}',
+			lineWidth:1,
+			neighborThreshold: 0,
+			showMarker:false
+			},
+			{
+			label: '$LABELS{$target}{legend_C}: current=$vals_current{2}{current}, max=$vals_legend{2}{max}, average=$vals_legend{2}{average}',
+			lineWidth:1,
+			neighborThreshold: 0,
+			showMarker:false
+			}
+		],
+		axes: {
+			xaxis:
+			{
+				showLabel: false,
+				label: "Time interval",
+				renderer:\$.jqplot.DateAxisRenderer,
+				min: '$min_datehour',
+				max: '$max__datehour',
+				labelRenderer: \$.jqplot.CanvasAxisLabelRenderer,
+				rendererOptions:{tickRenderer:\$.jqplot.CanvasAxisTickRenderer},
+				tickInterval: "1 months",
+				tickOptions:
+				{
+					formatString:"\%b",
+				}
+			},
+			yaxis:
+			{
+				label: "$LABELS{$target}{vlabel}",
+				autoscale: true,
+				tickOptions:
+				{
+					formatString:'$format',
+					formatter: \$.jqplot.tickNumberFormatter
+				},
+				labelRenderer: \$.jqplot.CanvasAxisLabelRenderer,
+				min: 0,
+				$max
+				$axedef
+				pad: 0,
+				numberTicks: 10
+			},
+		},
+		cursor:{zoom:true,constrainZoomTo:'x'},
+		highlighter:{show:true}
+	});
+
+	\$('#tabs').bind('tabsshow', function(event, ui) {
+		if (ui.index == 0) {
+			plotday.replot();
+		} else if (ui.index == 1) {
+			plotweek.replot();
+		} else if (ui.index == 2) {
+			plotmonth.replot();
+		} else if (ui.index == 3) {
+			plotyear.replot();
+		}
+	});
+
+  });
+  </script>
+
+</head>
+<body onload="document.getElementById('tabs').style.visibility='visible';">
+EOF
+
+	return $ret;
+}
+
+sub format_date
+{
+	my ($time, $min_datehour, $type) = @_;
+
+	my $max_datehour = '';
+	my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime($time);
+	$year += 1900;
+	$mon++;
+	$mon = sprintf("%02d", $mon);
+	$mday = sprintf("%02d", $mday);
+	$hour = sprintf("%02d", $hour);
+	$min = sprintf("%02d", $min);
+	$sec = sprintf("%02d", $sec);
+
+	if ($type eq 'month') {
+		$min_datehour = "$year-$mon-" . ($mday+1) . " 00:00:00" if (!$min_datehour);
+		$max_datehour = "$year-$mon-$mday $hour:$min:$sec";
+	} elsif ($type eq 'week') {
+		$min_datehour = "$year-$mon-" . ($mday+1) . " 00:00:00" if (!$min_datehour);
+		$max_datehour = "$year-$mon-$mday $hour:$min:$sec";
+	} else {
+		$min_datehour = "$year-$mon-$mday $hour:00:00" if (!$min_datehour);
+		$max_datehour = "$year-$mon-$mday $hour:$min:$sec";
+	}
+
+	return ("$year-$mon-$mday $hour:$min:$sec", $min_datehour, $max_datehour);
+}
+
+sub getStartInfos
+{
+	my ($dir) = @_;
+
+	my $filename = "$Config{'GENERAL'}{'DATA_DIR'}/$dir/kernel.txt";
+	my ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size, $atime,$mtime,$ctime,$blksize,$blocks) = stat($filename);
+	my $date = localtime($mtime);
+
+	my $kernel = 'OS: unknown';
+	my $retdate = '';
+	my $status = '';
+	# Get the kernel version
+	if (open(KFILE, "$Config{'GENERAL'}{'DATA_DIR'}/$dir/kernel.txt")) {
+		$kernel = <KFILE>;
+		$retdate = <KFILE>;
+		close(KFILE);
+	}
+	$retdate ||= $date;
+	chomp($kernel);
+	chomp($retdate);
+	if (-e "$Config{'GENERAL'}{'DATA_DIR'}/$dir/ssh.log") {
+		$status = 'SSH ERROR';
+		if (open(LFILE, "$Config{'GENERAL'}{'DATA_DIR'}/$dir/ssh.log")) {
+			my $ssh_log = <LFILE>;
+			close(LFILE);
+			$status .= " ($ssh_log)";
+		}
+	}
+	return ($retdate, $kernel, $status);
+}
+
+sub mainHeader
+{
+	my ($title)	= @_;
+
+	my $date = localtime(time);
+
+	my $base = '';
+	if ($Config{'GENERAL'}{'RESRC_URL'} ne '../') {
+		$base = $Config{'GENERAL'}{'RESRC_URL'};
+	}
+	my $ret = qq{<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head>
+<title>$title</title>
+<meta NAME="robots" CONTENT="noindex,nofollow">
+<meta HTTP-EQUIV="Pragma" CONTENT="no-cache">
+<meta HTTP-EQUIV="Cache-Control" content="no-cache">
+<meta HTTP-EQUIV="Expires" CONTENT="$date">
+<meta HTTP-EQUIV="Generator" CONTENT="Sysusage $VERSION">
+<meta HTTP-EQUIV="Date" CONTENT="$date">
+<meta HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=utf-8">
+<link rel="stylesheet" type="text/css" href="${base}sysusage.css" />
+<link rel="icon" href="${base}favicon.ico" type="image/x-icon" />
+<link rel="shortcut icon" href="${base}favicon.ico" type="image/x-icon" /> 
+<script type="text/javascript" src="${base}sysusage.js"></script>
+</head>
+<body>
+<div id="bodier">
+<a href="start.html" id="logo" target="windatas"><img src="${base}sysusage-logo.png"></a>
+
+<div id="hostlist">
+<table>
+<tr><th class="thcolhead">Hostname</th><th class="thcolhead">Last updated</th><th class="thcolhead">Kernel</th><th class="thcolhead">Status</th></tr>
+};
+
+	return $ret;
+}
+
+sub mainFooter
+{
+	return qq{
+<tr><td colspan="4" style="border: 0">
+<p style="font-size: 12px;">
+<br>
+<br>
+Generated by <a class="mainfooter" target=\"_new\" href="http://sysusage.darold.net/">SysUsage v$VERSION</a> (GPL v3)<br>
+Copyright (c) 2003-2012 Gilles Darold - All rights reserved.
+</p>
+</td></tr>
+};
+
+}
+
+
+

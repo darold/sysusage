@@ -1,0 +1,12 @@
+        |-----handy-ruler------------------------------------------------------|
+SysUsage: SysUsage (System monitoring based on perl, rrdtool, and sysstat)
+SysUsage:
+SysUsage: SysUsage continuously monitor your system informations and generate
+SysUsage: periodical graph reports using rrdtool. All reports are shown throught
+SysUsage: a web interface.
+SysUsage: SysUsage grabs all system activities using Sar and system commands
+SysUsage: allowing you to keep tracks of your computer or server activity
+SysUsage: during his life. It is a great help for performance analysis and
+SysUsage: resources management. It include alarm notification through SMTP or
+SysUsage: Nagios and plugin support.
+SysUsage:

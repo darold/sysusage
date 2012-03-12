@@ -1,0 +1,198 @@
+#!/usr/bin/perl
+#------------------------------------------------------------------------------
+#    sysusage - Full system monitoring with RRDTOOL
+#    Copyright (C) 2003-2012 Gilles Darold
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; either version 3 of the License, or
+#   any later version.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software Foundation,
+#   Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
+#
+# Author: Gilles Darold <gilles@darold.net>
+#------------------------------------------------------------------------------
+#
+# This script is used to send thresold alarmes received from
+# the sysusage report tool.
+#
+#------------------------------------------------------------------------------
+use strict;
+
+use Getopt::Long;
+use Net::SMTP;
+use POSIX qw(locale_h);
+setlocale(LC_ALL, 'C');
+
+my $VERSION = '5.2';
+
+my $SMTP     = '';
+my $FROM     = '';
+my @TO       = ();
+my $HOSTPROG = '/bin/hostname';
+my $TITLE    = '';
+my $CURVAL   = '';
+my $THRESVAL = '';
+my $HELP     = '';
+my $TIMEOUT  = 30;
+my $NAGIOS   = '';
+my $WARN_LEVEL  = 0;
+my $SERVICE  = '';
+my $URL      = '';
+my $REALHOST = '';
+
+# Nagios alarm level
+my %LEVEL = (
+	3 => 'urgent', 
+	2 => 'critical',
+	1 => 'warning',
+	0 => 'information'
+);
+# Get information received from commande line
+&check_args();
+
+
+my $hostname = `$HOSTPROG`;
+chomp($hostname);
+$REALHOST ||= $hostname;
+$URL ||= "http://$hostname/sysusage/";
+
+# Send email if there's a SMTP server to join
+if ($SMTP && $FROM && ($#TO >= 0)) {
+	foreach my $to (@TO) {
+		my $smtp = Net::SMTP->new($SMTP, Timeout => $TIMEOUT);
+		$smtp->mail($FROM);
+		$smtp->to($to);
+		$smtp->data();
+		$smtp->datasend("Content-Type: text/plain;\n");
+		$smtp->datasend("To: $to\n");
+		$smtp->datasend("From: $FROM\n");
+		$smtp->datasend("Subject: [Alarme] Sysusage - $TITLE\n");
+		$smtp->datasend("X-Alarm-Module: sysusagewarn\n");
+		$smtp->datasend("X-Alarm-Context: system\n");
+		$smtp->datasend("X-Alarm-Priority: $LEVEL{$WARN_LEVEL}\n");
+		$smtp->datasend("X-Alarm-Source: $REALHOST\n");
+		$smtp->datasend("X-Alarm-Protocol: posix\n");
+		$smtp->datasend("X-Alarm-Application: sysusage\n");
+		$smtp->datasend("X-Alarm-Version: $VERSION\n");
+		$smtp->datasend("\n");
+		$smtp->datasend("The system $REALHOST has reported a threshold limit exceed\n");
+		$smtp->datasend("Information    : $TITLE\n");
+		$smtp->datasend("Threshold value: $THRESVAL\n");
+		$smtp->datasend("Current value  : $CURVAL\n");
+		$smtp->datasend("Statistics are available at <a href=\"$URL\" target=\"_new\">$URL</a>\n");
+		$smtp->datasend("\n");
+		$smtp->datasend("\n");
+		$smtp->dataend();
+		$smtp->quit;
+	}
+}
+
+if ($NAGIOS) {
+	my $txt = "$TITLE (currrent: $CURVAL, threshold: $THRESVAL)";
+	$txt = $TITLE if ($WARN_LEVEL == 0);
+	system("$NAGIOS $REALHOST \"$SERVICE\" $WARN_LEVEL \"[SysUsage] $txt\" > /dev/null 2>&1");
+}
+
+exit 0;
+
+
+####
+# Function used to return command line usage 
+####
+sub usage
+{
+	print qq{
+Usage: $0 -t subject -c current_value -v threshold_value [-s smtp_srv] [-f from] [-d to] [-b hostname_prog]
+
+ -t subject : Subject of the alarm
+ -c value   : Current value monitored by sysusage.pl
+ -v value   : Threshold value used.
+ -s host    : SMTP server name or ip where to send email. Default localhost
+ -f from    : Sender email address of the alarm message. Default root\@localhost
+ -d to      : Destination address of the alarm message. Default root\@localhost
+ -b path    : Path to program hostname. Default is /bin/hostname
+ -n path    : Path to Nagios program submit_check_result. Default is none. 
+ -l value   : Alarm level (0=OK,1=WARNING,2=CRITICAL,3=UNKNOWN). Default: 1. 
+ -r service : Nagios service name to used. Must be any sysusage target type of
+              monitoring defined in the configuration file.
+ -u url     : Url to HTML sysusage output to include in email.
+              Default: http://hostname.domain/sysusage/
+ -h         : Output this message and exit.
+ -a hostname: Real source hostname to replace the hostname value in a multihost ran.
+ 
+};
+
+	exit(1);
+}
+
+####
+# Function used to check command line argument and configuration
+####
+sub check_args
+{
+	my $dest = '';
+        GetOptions(
+                "t=s"   => \$TITLE,
+		"c=s"   => \$CURVAL,
+		"v=s"   => \$THRESVAL,
+                "h!"    => \$HELP,
+                "f=s"   => \$FROM,
+                "d=s"   => \$dest,
+                "s=s"   => \$SMTP,
+		"b=s"   => \$HOSTPROG,
+		"n=s"   => \$NAGIOS,
+		"l=s"   => \$WARN_LEVEL,
+		"r=s"   => \$SERVICE,
+		"u=s"   => \$URL,
+		"a=s"   => \$REALHOST,
+		"help!" => \$HELP,
+        ) || &usage();
+        &usage() if ($HELP);
+
+	# Allow multiple recipient
+	@TO = split(/,/, $dest);
+
+	# Check configuration
+	if (! -f $HOSTPROG) {
+		print STDERR "ERROR: Can't find hostname program in $HOSTPROG.\n";
+		&usage();
+	} elsif (!-x $HOSTPROG) {
+		print STDERR "ERROR: Can't execute $HOSTPROG.\n";
+		&usage();
+	}
+	if ($NAGIOS && ! -x $NAGIOS) {
+		print STDERR "ERROR: Can't execute $NAGIOS.\n";
+		&usage();
+	}
+	if ($NAGIOS && !$SERVICE) {
+		print STDERR "WARNING: No Nagios service given. Set it to sysusage\n";
+		$SERVICE = 'sysusage';
+	}
+	if (!$TITLE) {
+		print STDERR "ERROR: Can't compose message. Title is required.\n";
+		&usage();
+	}
+	if (($CURVAL eq '') || ($THRESVAL eq '')) {
+		if (!$NAGIOS || $WARN_LEVEL) {
+			print STDERR "ERROR: Can't compose message. Current value and thresold value are required.\n";
+			&usage();
+		}
+	}
+	if (!$NAGIOS && (!$SMTP || !$FROM || ($#TO < 0))) {
+		print STDERR "ERROR: Can't send message. SMTP server, sender and destination address are required.\n";
+		&usage();
+	}
+	if ($SMTP && (!$FROM || ($#TO < 0))) {
+		print STDERR "ERROR: Can't send message. sender and destination SMTP address are required.\n";
+		&usage();
+	}
+	$WARN_LEVEL = 1 if ($WARN_LEVEL eq '');
+}

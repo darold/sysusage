@@ -1,0 +1,53 @@
+#!/bin/sh
+set -e
+
+# Create crontab entry
+cat > sysusage.cron << _EOF_
+#
+# System monitoring
+#*/1 * * * * root /usr/bin/sysusage > /dev/null 2>&1
+#*/5 * * * * root /usr/bin/sysusagegraph > /dev/null 2>&1
+_EOF_
+
+# Append crontab entry to root user
+cat sysusage.cron > /etc/cron.d/sysusage
+rm -f sysusage.cron
+
+# Create default httpd configuration
+cat > httpd-sysusage.conf << _EOF_
+#
+# By default SysUsage statistics are only accessible from the local host.
+#
+Alias /sysusage /usr/share/apache2/sysusage
+
+<Directory /usr/share/apache2/sysusage>
+    Options All
+    Order deny,allow
+    Deny from all
+    Allow from 127.0.0.1
+    Allow from ::1
+    # Allow from .example.com
+</Directory>
+_EOF_
+
+# Append Apache configuration
+install -D -m 0644 httpd-sysusage.conf /etc/apache2/conf.d/httpd-sysusage.conf
+rm -f httpd-sysusage.conf
+
+cat << _EOF_
+1. Setup a cronjob to run sysusage.  Uncomment the entries in
+   /etc/cron.d/sysusage or create a custom cronjob.
+
+2. Uncomment the entries in /etc/apache2/conf.d/httpd-sysusage.conf
+
+3. Restart and ensure that httpd is running.
+
+4. Browse to http://localhost/sysusage to ensure that things are working
+   properly.
+
+5. If necessary, give additional hosts access to sysusage by adding them to
+   /etc/apache2/conf.d/httpd-sysusage.conf
+
+_EOF_
+
+exit 0

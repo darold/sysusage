@@ -1,0 +1,22 @@
+SysUsage (System monitoring based on perl, rrdtool, and sysstat) continuously
+monitor your system informations and generate periodical graph reports using
+rrdtool. All reports are shown throught a web interface.
+
+SysUsage grabs all system activities using sar and system commands allowing
+you to keep tracks of your computer or server activity during his life. It is
+a great help for performance analysis and resources management. It include
+alarm notification through SMTP or Nagios and plugin support.
+
+To use this tool you need an httpd daemon with Perl CGI support and some
+libraries included in standard SlackWare distribution: libpng and libgd.
+You also need some extra Perl modules that can be download from CPAN at
+http://search.cpan.org/
+
+	GD
+	GD::Graph
+	GD::TextUtil
+
+You need sysstat, rrdtool and perl rrdtool installed.
+
+After installing the package you must follow the instructions displayed at
+the end.

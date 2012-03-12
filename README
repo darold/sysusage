@@ -1,0 +1,1050 @@
+NAME
+    SysUsage v5.2 - System Monitoring Tool
+
+DESCRIPTION
+    SysUsage is a tool used to continuously monitor a system and generate
+    daily/weekly/monthly/yearly graphical report using rrdtool and sar.
+
+FEATURES
+    SysUsage generate graphical reports on all system activity information.
+    His periodical reports allow you to keep track of the machine activity
+    during his life and will be a great help for performance analysis and
+    resources management.
+
+    SysUsage can be run periodically from 10 seconds cycle in daemon mode to
+    1 minute or more using crond.
+
+    Since release 5.0 SysUsage can be run from a central server to call a
+    ssh remote execution of the sysusage perl script so that collected data
+    will be stored in this central place. You also will have just one place
+    where rrdtool and related Perl modules need to be installed as well as
+    just one place where sysusagegraph or sysusagejqgraph need to be
+    executed.
+
+  CPUs
+            - CPUs distribution usage (user, nice, system).
+            - CPUs global usage (total cpu used, iowait).
+            - CPUs virtualized usage (steal, guest).
+
+  Memory
+            - Memory usage (with and without cache).
+            - Swap usage (with and without cache).
+            - Amount of memory need for current workload.
+            - Posix share memory.
+
+  I/O
+            - Context switches per second.
+            - Interrupts per second.
+            - Page swapping.
+            - Page I/O stats.
+            - I/O request stats.
+            - I/O block stats.
+
+  Network
+            - TCP connections per second.
+            - TCP segments per second.
+            - Number of socket in use (Total, TCP and UDP).
+            - Number of socket in TIME_WAIT state.
+            - Active network interface usage.
+            - Active network interface bad packet, dropping, collision.
+
+  Devices
+            - CPU time for I/O on device.
+            - Read/Write sectors on device.
+            - Disk throughput on device.
+            - I/O workload on device.       
+            - Times for I/O requests issued to device.
+            - Hard drive temperature if your hardward support it (with hddtemp).
+            - MotherBoard/CPU/Remote temperature reported by sensors.
+            - Fan RPM reported by sensors.
+
+  Files
+            - Number of open file.
+            - Number of file in a queue directory.
+            - Disk space used on mounted partition.
+
+  Process
+            - Load average.
+            - Process created per second.
+            - Number of running process (ex: sendmail, httpd, oracle, etc.).
+            - Number of running thread (ex: mysqld, amarok, etc.).
+
+  Notification
+    You can have mail or Nagios notification when some monitored values are
+    outside max/min threshold values for all type of monitoring.
+
+  Plugins
+    Since version 3.0 you can create your own monitoring plugins. Any script
+    or program can be embeded in SysUsage provided that it return up to 3
+    numeric values. The graphic title and labels are defined in the
+    configuration file.
+
+  Remote call
+    Since release 5.0 SysUsage can be installed onto a central server that
+    will be used to store statistics data by periodically calling sysusage
+    on remote host using SSH. This central place will also be in charge to
+    renderer HTML plages and graphics for all hosts. This will allow to
+    simplify the SysUsage installation on remote host that will only require
+    sysstat and rsysusage.
+
+REQUIREMENT
+  rrdtool
+    You need to install rrdtool. You can find it at:
+
+            http://people.ee.ethz.ch/~oetiker/
+
+    To use the RRDs perl module you must use the following command to
+    compile the distrib:
+
+            make site-perl-install
+
+    This installation is optional if sysusage is installed on a remote host.
+
+  sysstat
+    You also need sar to collect statistics. Sar is part of the sysstat
+    package. You can find it here :
+
+            http://freshmeat.net/projects/sysstat/
+
+    If you plan to use threshold notification you must have Net::SMTP
+    installed. It can be found on CPAN (http://search.cpan.org)
+
+  Perl modules
+    Since release 5.0 sysusage can be run in a central place to collect
+    remote sysusage statistics using ssh. The remote calls are proceed
+    simultaneously using fork and the Proc::Queue Perl module.
+
+    If you're plan tu use sysusagegraph instead of sysusagejqgrpah you will
+    also need the GD and GD::Graph3D Perl modules.
+
+    All these modules are always available from CPAN
+    (http://search.cpan.org/) and may at least be installed on the central
+    server. On remote host this is optional and depend if you want to run it
+    on each server or by ssh from a central place.
+
+  Nagios nsca client (optional)
+    If you want to send message to Nagios you need to install
+    nsca-2.7.2.tar.gz or a more recent version. You can get it here:
+
+            http://sourceforge.net/projects/nagios/files/
+
+  hddtemp and sensors (optional)
+    If you want to monitor your hard drive temperature you must install a
+    small utility called hddtemp. You can download it from
+    http://download.savannah.gnu.org/releases/hddtemp/. Run it to see if
+    your hard drive have a temperature sensor.
+
+    You can also use sensors to monitor your cpu temperature and fan speed.
+    If you harware support it run sensors-detect and load the required
+    kernel modules at boot time.
+
+INSTALLATION
+  Quick install
+    Simply run the following commands:
+
+            perl Makefile.PL
+            make && make install
+
+    By default it will copy the perl programs into /usr/local/sysusage/bin
+    and the HTML output will be done to /var/www/htdocs/sysusage/. The
+    configuration file is /usr/local/sysusage/etc/sysusage.cfg and all RRD
+    Bekerley DB databases from rrdtool will be saved under
+    /usr/local/sysusage/rrdfiles.
+
+    If you plan to run sysusage on different servers from a cntral place you
+    may just want to install the rsysusage Perl script on remote hosts. So
+    proceed as follow:
+
+            perl Makefile.PL REMOTE=1
+            make && make install
+
+    It will copy the only the rsysusage into /usr/local/sysusage/bin and the
+    configuration file under /usr/local/sysusage/etc/sysusage.cfg. The RRD
+    data directory will be created under /usr/local/sysusage/rrdfiles but
+    just to hold the *.cnt files relatives to the count of alert attempt on
+    threshold exceed.
+
+  Custom install
+    You can overwrite all install path with the following Makefile.PL
+    arguments. Here are the default values:
+
+            BINDIR=/usr/local/sysusage/bin
+            CONFDIR=/usr/local/sysusage/etc
+            PIDDIR=/usr/local/sysusage/etc
+            BASEDIR=/usr/local/sysusage/rrdfiles
+            PLUGINDIR=/usr/local/sysusage/plugins
+            HTMLDIR=/var/www/htdocs/sysusage
+            MANDIR=/usr/local/sysusage/doc
+            DOCDIR=/usr/local/sysusage/doc
+            REMOTE=
+
+    For example on a RedHat System you may prefer install SysUsage as this:
+
+            perl Makefile.PL BINDIR=/usr/bin CONFDIR=/etc PIDDIR=/var/run \
+                    BASEDIR=/var/lib/sysusage HTMLDIR=/var/www/html/sysusage \
+                    MANDIR=/usr/man/man1 DOCDIR=/usr/share/doc/sysusage
+
+    If you are installing sysusage on a host that will be call by ssh from a
+    central place, you may want to install just what is necessary and not
+    more:
+
+            perl Makefile.PL BINDIR=/usr/bin CONFDIR=/etc PIDDIR=/var/run \
+                    MANDIR=/usr/man/man1 DOCDIR=/usr/share/doc/sysusage \
+                    REMOTE=1
+
+    This will just install the rsysusage Perl script, the configuration file
+    and documentation. So that you don't need to install extra Perl modules
+    and other graphics related things.
+
+  Package/binary install
+    In directory packaging/ you will find all scripts to build RPM,
+    slackBuild and debian package. See README in this directory to know how
+    to build these packages.
+
+  Previous version
+    Previous version used to ask a lot of questions during install, this was
+    removed since version 3.0 to the benefice of simplicity and a default
+    configuration file.
+
+USAGE
+    SysUsage consist in two main Perl scripts, sysusage and sysusagegraph.
+    Once you have correctly installed and configured SysUsage the best way
+    to execute them is by setting a cron job. If you prefer javascript
+    graphics instead of GD::Graph images use sysusagejqgraph that is based
+    on jqplot javascript library.
+
+  sysusage
+    The script sysusage is responsible of collecting system informations at
+    a given interval and store them into rrdtool database files.
+
+    As it is very fast you can set running interval time to 1 minute. This
+    is the default pooling interval used in configuration and graph reports.
+    If you change this interval you must also change it in the configuration
+    file otherwise your graph will be false. See the INTERVAL configuration
+    directive.
+
+    Here is how I use it with a default installation:
+
+            */1 * * * * /usr/local/sysusage/bin/sysusage > /dev/null 2>&1
+
+  rsysusage
+    This script do the same things as the sysusage Perl script but instead
+    of storing collected datas on file it will dump them to the standard
+    output. This script is used instead of the sysusage Perl script by a ssh
+    call from a central server where the local sysusage will store the
+    statistics retrieved from multiple servers.
+
+            /usr/local/sysusage/bin/rsysusage -r remote_hostname
+
+    Where 'remote_hostname' is the hostname given in the [REMOTE ...]
+    configuration section.
+
+  sysusagegraph / sysusagejqgraph
+    The perl script sysusagegraph is used to draw PNG graphs and write HTML
+    file. As he knows the pooling interval given in the configuration file
+    it can be run at any time. I used to run it each five minutes but you
+    can run it each hours or more this is the same.
+
+            */5 * * * * /usr/local/sysusage/bin/sysusagegraph > /dev/null 2>&1
+
+    Since release v4.0 of SysUsage there's a JQuery plotting replacement of
+    rrdGraph that only write HTML files with all javascript code to allow
+    the client browser to draw the graphs. To enable this feature you just
+    have to use sysusagejqgrpah instead.
+
+            */5 * * * * /usr/local/sysusage/bin/sysusagejqgraph > /dev/null 2>&1
+
+    There's some more resources javascript libraries and CSS files to
+    install. The SysUsage installer will do the job for you. This remove the
+    requirement of the GD, GD::Graph and GD::Graph3D Perl modules.
+
+  sysusage.cfg
+    If you have change the default installation path (/usr/local/sysusage)
+    you may need to give these scripts the path to the configuration file as
+    command line argument using -c option. To know what arguments can be
+    passed use option -h or --help.
+
+    Note that since version 3.0 the default configuration path in these
+    scripts is set during installation. So you may not need anymore to edit
+    these scripts or give the path of the configuration file as command line
+    argument.
+
+    See CONFIGURATION chapter for more information on howto configure your
+    system monitoring.
+
+  Daemon mode
+    Crond is good for scheduling but not under the minute. If you want to
+    monitor your system within an interval under the minute you may want to
+    run sysusage in daemon mode. To do that, just change the INTERVAL to the
+    desired timer in the configuration file and the DAEMON directive to 1.
+
+  Debug mode
+    Some time things don't appear as you wanted. The best way to see what's
+    going wrong is to run sysusage in debug mode. This mode allow you to see
+    all values extracted from sar and other tools. Use the --debug option
+    for that, this mode prevent sysusage to store data in the rrdfiles.
+    Command:
+
+            /usr/local/sysusage/bin/sysusage --debug
+
+    Please, run this command and check the result before sending bug report.
+
+  Output
+    Once sysusage and sysusagegraph are running since some cycles, run your
+    favorite browser and take a look at the output directory. By default:
+
+            http://my.server.dom/sysusage/
+
+    If you have special URI and/or port remember to modify the URL
+    configuration directive without that the web interface will not works.
+
+CONFIGURATION
+    During installation a default configuration file sysusage.cfg is
+    generated. The default settings are good enougth to report essential
+    information of your system, but if you want to monitor some processes,
+    queue directories or some devices you must edit this file by hand.
+
+    Here is the format of the configuration file and all directives. There
+    is three section, the first one set the general parameters of the
+    application, the second set the parameters related to SMTP or Nagios
+    notification at threshold exceed and the last configure all type of
+    system information you may want to monitor.
+
+    Full sample of configuration file:
+
+            [GENERAL]
+            DEBUG       = 0
+            DATA_DIR    = /usr/local/sysusage/rrdfiles
+            PID_DIR     = /usr/local/sysusage/etc
+            DEST_DIR    = /var/www/htdocs/sysusage
+            SAR_BIN     = /usr/bin/sar
+            UPTIME      = /usr/bin/uptime
+            HOSTNAME    = /bin/hostname
+            INTERVAL    = 60
+            SKIP        = 12:00/14:00 20:00/06:00
+            HDDTEMP_BIN = /usr/local/sbin/hddtemp
+            SENSORS_BIN = /usr/bin/sensors
+            DAEMON      = 0
+            GRAPH_WIDTH = 550
+            GRAPH_HEIGHT= 200
+            FLAMING     = 0
+            HIRES       = 0
+            LINE_SIZE   = 2
+            PROC_QSIZE  = 4
+            RESRC_URL   =
+            SSH_BIN     = /usr/bin/ssh
+            SSH_OPTION  = -o ConnectTimeout=5 -o PreferredAuthentications=hostbased,publickey
+            SSH_USER    =
+            SSH_IDENTITY=
+
+
+            [ALARM]
+            WARN_MODE   = 0
+            ALARM_PROG  = /usr/local/sysusage/bin/sysusagewarn
+            SMTP        = localhost
+            FROM        = root@localhost
+            TO          = root@localhost
+            NAGIOS      = /usr/local/nagios/bin/submit_check_result
+            UPPER_LEVEL = 1
+            LOWER_LEVEL = 2
+            URL         =
+
+            [MONITOR]
+            load:threshold_max_value
+            cpu:threshold_max_value
+            mem:threshold_max_value
+            swap:threshold_max_value
+            share:threshold_max_value
+            sock:threshold_max_value
+            socktw:threshold_max_value
+            io:threshold_max_value
+            file:threshold_max_value
+            page:threshold_max_value
+            pcrea:threshold_max_value
+            pswap:threshold_max_value
+            net:threshold_max_value
+            err:threshold_max_value
+            disk:threshold_max_value
+            proc:proc_name:threshold_max_value:threshold_min_value
+            tproc:proc_name:threshold_max_value:threshold_min_value
+            queue:path_queue_dir:threshold_max_value
+            hddtemp:device:threshold_max_value
+            dev:device(alias):threshold_max_value
+            dev:device(alias):rpm_speed:raid_type:nb_disk
+            work:threshold_max_value
+            sensors:pattern:threshold_max_value
+
+            [PLUGIN testplug]
+            title:Sysage Test plugin
+            menu:Database
+            enable:no
+            program:/usr/local/sysusage/plugins/plugin-sample.pl
+            minThreshold:0
+            maxThreshold:10
+            verticalLabel:Number of seconds
+            label1:Total seconds
+            label2:
+            label3:
+            legend1:seconds
+            legend2:
+            legend3:
+            remote:yes
+
+            [REMOTE hostname1]
+            enable:no
+            ssh_user:monitor
+            ssh_identity:/home/monitor/.ssh/id_rsa
+            #ssh_options: -o ConnectTimeout=5 -o PreferredAuthentications=hostbased,publickey
+            #ssh_command:
+            remote_sysusage:/usr/local/sysusage/bin/rsysusage
+
+  Section GENERAL
+    DEBUG = 0|1
+        This option is used to set debug mode. If set to 1 then sysusage and
+        sysusagegraph just show what they do but don't create or send
+        anything.
+
+    DATA_DIR = /path/to/rrdfiles
+        This option is used to set te ouput directory for all RRDTOOL
+        database.
+
+    PID_DIR = /path/to/piddir
+        sysusage and sysusagegraph use a file to store the pid of the
+        running process to prevent simultaneous run.
+
+    DEST_DIR = /path/to/html_output
+        Set the path to the directory where all HTML and graph files should
+        be created.
+
+    SAR_BIN = /path/to/sar_binary
+        sysusage use sar, part of the sysstat distribution to grab system
+        information so we need to know where it is.
+
+    UPTIME = /path/to/uptime_binary
+        sysusagegraph report the current uptime of the system using the
+        uptime command. Used to set path to uptime binary.
+
+    HOSTNAME = /path/to/hostname_binary
+        All scripts of Sysusage distribution need to know the name of the
+        host. They use hostname command for that.
+
+    INTERVAL = pull_interval_in_second
+        All RRDTOOL input use the given interval in second to store
+        monitored values. Graph construction also use this interval to
+        render things properly. By default Sysusage use an interval of 60
+        seconds to have a better statistic report. You can change this but
+        it's not recommanded. If you change this adjust your crontab to the
+        same value. This value must between 10 and 300 seconds. If you want
+        to be under the minute you must use the daemon mode to run sysusage.
+        See DAEMON bellow.
+
+    SKIP = HH:MM/HH:MM HH:MM/HH:MM ...
+        You can define here some time range where monitoring will not be
+        done. Value is a list of begin_time/end_time separated by space or
+        tabulation. Let's say you don't want to monitor the host during the
+        night for some good reason, you can write it like that: 20:00/06:00
+
+    HDDTEMP_BIN = /path/to/hddtemp_binary
+        You can monitor your hard drive temperature if you have installed
+        hddtemp utility. We need to know the path to hddtemp binary.
+
+    SENSORS_BIN = /path/to/sensors_binary
+        You can monitor your device temperature if you have installed
+        lm_sensor utility. We need to know the path to sensors binary.
+
+    DAEMON = 0 | 1
+        You can monitor your system under the crond limitation of 1 minute
+        by running sysusage in daemon mode with an INTERVAL between 10 end
+        60 seconds.
+
+    GRAPH_WIDTH and GRAPH_HEIGHT
+        These are usefull if you want to resize graph dimension. Default is
+        a width of 550 pixels and a height of 200.
+
+    FLAMING
+        This is for fun, if you want to have random flaming effect on graphs
+        with only dataset set this directive to 1. Disable by default. Not
+        used with JQuery graph renderer.
+
+    HIRES
+        Allow addition of hourly graph to have fine granularity of the data.
+        This is disable by default. Set it to any integer between 1 to 23
+        hours included to show data from past N hours to now. Not used with
+        JQuery graph renderer as the Javascript library allow you to zoom
+        into the resolution you want.
+
+    LINE_SIZE
+        By default the graph line size is 1 if you want graph with a more
+        thick line set it to 2. This is rrd graph limitation (1 or 2). Not
+        used with JQuery graph renderer.
+
+    PROC_QSIZE
+        Number of simultaneous remote sysusage call process that should be
+        run. Default is 4 but it can be up to 15 or more depending of the
+        hardware configuration. One per core is the lower value you may
+        think about.
+
+    RESRC_URL
+        Images, javascripts and css ressources by default are search into
+        the DEST_DIR directory so that in the HTML view they all stayed on
+        the current main directory. You may want to place thoses resources
+        on an other directory or an another place. Using this directive you
+        can set any FQDN, absolute or relative URL for these resources.
+
+    SSH_IDENTITY
+        Used to set the default identity file to connect to all remote hosts
+        without password. If undefined, sysusage will use the ssh system
+        default value. You may want to use the default value unless you know
+        exactly what's you are doing.
+
+    SSH_OPTION
+        Use set the default ssh options, that correspond to a passwordless
+        authent:
+
+                -o ConnectTimeout=5 -o PreferredAuthentications=hostbased,publickey
+
+        with a five seconds connection timeout. You may want to increase
+        this timeout on very slow network links.
+
+        Do not change this value unless you know exactly what's you are
+        doing.
+
+    SSH_BIN
+        Path to the ssh command is set here at install time.
+
+    SSH_USER
+        Used to defined the default ssh user that will be used to connect to
+        all remote hosts.
+
+  Section ALARM
+    WARN_MODE = 0|1
+        Used to disable/enable alert message during threshold exceed.
+
+    ALARM_PROG = /path/to/sysusagewarn
+        Used to set path to the external program responsible of sending
+        alarm message. You can change it to your own, just take a look at
+        the sysusagewarn usage to see what command line options are used by
+        sysusage
+
+    SMTP = smtp.server.net
+        Name or Ip address of the SMTP server to contact. Default is none =>
+        No smtp message is sent.
+
+    FROM = sender@localhost
+        Sender email addresse to use in the SMTP message.
+
+    TO = destination@localhost
+        Destination email address where the alarm message will be sent.
+
+    NAGIOS = /usr/local/nagios/bin/submit_check_result
+        Path to the external nsca program used to send check message to
+        Nagios. Setting this will activate nagios check report. See at end
+        of this file to see how to configure Nagios
+
+    UPPER_LEVEL = 1
+        Nagios check level to send when a high threshold limit is reached.
+        Default is 1 => WARNING.
+
+    LOWER_LEVEL = 2
+        Nagios check level to send when a low threshold limit is reached.
+        Default is 2 => CRITICAL.
+
+    URL = Url of Sysusage report
+        Used to overwrite the default URL of SysUsage report
+        http://host.dom/sysusage/ especially if you have a special port or a
+        different path. Example:
+        http://hostname.domain:9080/Reports/Sysusage/
+
+    SKIP = HH:MM/HH:MM HH:MM/HH:MM ...
+        You can define here some time range where alarm notice will not be
+        sent. Value is a list of begin_time/end_time separated by space or
+        tabulation. Let's say you don't want to received notice during the
+        night for some good reason, you can write it like that: 20:00/06:00
+
+  Section MONITOR
+    This section has two different format the first one is used to specify
+    most of the monitoring target:
+
+            type:threshold_max
+
+    or
+
+            type:threshold_max(attempt)
+
+    type
+        Type of system information you may want to monitor. It can takes 16
+        differents values:
+
+                load   => monitor load average
+                cpu    => monitor each cpu(s) user/nice/system usage
+                       => monitor each cpu(s) total/iowait usage
+                       => monitor each cpu(s) steal/guest usage
+                cpuall => monitor global cpu(s) statistics
+                cswch  => monitor context switches usage
+                intr   => monitor number of interrupt per second
+                mem    => monitor memory usage
+                share  => monitore Posix share memory usage (/dev/shm)
+                swap   => monitor swap usage
+                work   => monitor amount of memory needed for current workload
+                sock   => monitor number of open socket
+                socktw => monitor number of socket in TIME_WAIT state
+                io     => monitor I/O request and block usage
+                page   => monitor I/O page usage
+                pswap  => monitor I/O page swap usage
+                pcrea  => monitor number of process created per second
+                file   => monitor number of open file
+                net    => monitor I/O network bytes on all network interfaces
+                err    => monitor bad packet, drop and collision on interfaces
+                disk   => monitor disk space usage
+                tcp    => monitor number of tcp connection and segment
+
+        Note: the 'cpu' target monitoring type will report all statictics
+        per cpu. This can represent a lot of informations if you several
+        cpu. To limit statistics to total cpu only, you must replace default
+        the 'cpu' target to 'cpuall' in your configuration file.
+
+    threshold_max
+                This is the maximum threshold value. Any value equal or upper
+                than this one will generate SMTP and/or Nagios alert if you
+                have enable it.
+
+    attempt
+        You can delay the call to the alarm program at threshold exceed by
+        specifying the number of consecutive exceed attempt before the
+        command will be called. Just specify the number of attempt between
+        bracket just after the min and/or max threshold value. This setting
+        is optional for both threshold value and the default is to send
+        alarm immediatly.
+
+    Specials cases
+        There's a special case for 'disk' usage monitoring that allow
+        exclusion of some mount point. This is usefull if you have hard link
+        or some special device you don't need to monitor. Where exclusion is
+        a semi- colon (;) separated list of mount point to exclude from
+        monitoring.
+
+                disk:ThresholdMax:exclusion
+
+        Ex: disk:90:/home/mondo_image;/home/smb_mountpoint
+
+        You can use regexp in your excluded path.
+
+        The other directive with special syntax is 'dev'. It is construct as
+        follow:
+
+                dev:device(alias):rpm_speed:raid_type:nb_disk
+
+        where device is sda, sdb or any device name (without the /dev/), the
+        alias between parenthesis is the name that must be displayed in the
+        user interface instead of the device name. For example:
+
+                dev:sdc(ASM disk1):
+                dev:sdb(/data):
+
+        I you plan to use I/O workload report, SysUsage need to know the
+        speed of the disk (RPM), the raid type (0,1,5,10) and the number of
+        disk in the raid array to calculate the IOPS. For example if we have
+        a 7200 RPM disk with 2 disk in raid 1, we will write thing like
+        that:
+
+                dev:sdc(ASM disk1):7200:1:2
+
+        I/O workload is the relation between TPS (transfers per second) and
+        IOPS (I/O operations measured in seconds) of a device. If the tps
+        returned by sysstat reach the maximum theoretical IOPS, your storage
+        subsystem is saturated. Here is the equation to calculate the
+        maximum theoretical IOPS:
+
+                d = number of disks
+                dIOPS = IOPS per disk
+                %r = % of read workload
+                %w = % of write workload
+                F = raid factor
+
+                IOPS = (d *dIOPS) / (%r + (F * %w))
+
+        the theoretical maximum IOPS for a RAID set (excluding caching of
+        course). To do this you take the product of the number of disks and
+        IOPS per disk divided by the sum of the %read workload and the
+        product of the raid factor and %write workload. Where %read and
+        %write are calculated from the following equation:
+
+                %r = rd_sec / (rd_sec + wr_sec);
+                %w = wr_sec / (rd_sec + wr_sec);
+
+        This IOPS monitoring is build following the excellent article of
+        Nick Anderson readable from Analyzing I/O performance in Linux.
+
+    The second format is used to monitor running process, hard drive
+    temperature or queue directory. It has the following format:
+
+            type:target:threshold_max_value:threshold_min_value
+
+    or
+
+            type:target:threshold_max_value(attempt):threshold_min_value(attempt)
+
+    type
+        Type of system information you may want to monitor. It can takes
+        these differents values:
+
+                proc    => monitor number of running process
+                tproc   => monitor number of running thread
+                queue   => monitor number of files in a directory
+                dev     => monitor CPU usage per device (ex: sda)
+                hddtemp => monitor hard drive temperature
+                sensors => monitor device (cpu temp, fan speed, etc.)
+
+    target
+        If type is 'proc' or 'tproc' target represent the name of the
+        process to monitor. You can put a regexp as target to match exactly
+        the required process. The number of running process are obtain by
+        the system command line:
+
+                ps -e -o command | grep -E "target" | grep -v grep | wc -l
+
+        so you can replace the word target by the regexp to match and see if
+        it returns the right number of process.
+
+        The number of running thread are obtain by the system command line:
+
+                ps -eL -o command | grep -E "target" | grep -v grep | wc -l
+
+        If type is 'queue' this represent the full path of the directory to
+        monitor. Sysusage will try to find and count any regular file in the
+        target directory and will not follow sub directories.
+
+        If type is 'hddtemp' the target represent the hard drive device to
+        monitor, ex: /dev/sda. You can try it with the following command
+        line:
+
+                hddtemp -n /dev/sda
+
+        This may return the actual temperature detected on the hard drive.
+
+        If this is 'dev' this represent the device name to monitor. Ex: sda.
+        Do not add the /dev/ before this will not work. You may want to
+        change the device name in the graphic menu, this is possible by
+        adding the device alias enclosed with parenthesis.
+
+        For example lets say you're monitoring some EMCpower SAN device.
+        Using sar the reported devices are dev120-48 and dev120-64. Once you
+        have find what partition are mapped to these devices (reading
+        /proc/partitions). In this example these devices are mounted as
+        /cache1 and /cache2 so we want to see these mount points instead of
+        device number in the graphical menu:
+
+                dev:dev120-48(/cache1):90
+                dev:dev120-64(/cache2):97
+
+        in you sysusage.conf file will do the job. The threshold_max value
+        is the max percentage of CPU used for this device before sending an
+        alarm.
+
+        If type is 'sensors' this represent the pattern to match to obtain
+        temperature or fan speed information in the sensors program output.
+        See chapter SENSORS to have more information.
+
+    threshold_max
+        This is the maximum threshold value. Any value equal or upper will
+        generate an SMTP and/or Nagios alert if you have enable it.
+
+    threshold_min
+        This is the minimum threshold value. Any value equal or lower of
+        this one will generate SMTP and/or Nagios alert if you have enable
+        it. Min threshold should certainly only be used with 'proc' and
+        'tproc' monitoring type. If you set it to 0 then you will be warn if
+        any of the monitored process are down.
+
+    attempt
+        You can delay the call to the alarm program at threshold exceed by
+        specifying the number of consecutive exceed attempt before the
+        command will be called. Just specify the number of attempt between
+        bracket just after the min and/or max threshold value. This setting
+        is optional for both threshold value and the default is to send
+        alarm immediatly.
+
+        For example a load average monitoring defined like this
+
+                load:12(3)
+
+        will send an alarm when the system load average will exceed 12 after
+        three consecutives attempts at the define interval. If the interval
+        is 60 seconds, the alarm will be sent up to 180 second after the
+        first exceed.
+
+  Section PLUGIN
+    This part enable the use of custom plugins. You can call any program or
+    script provide that it return up to 3 numbers separated by a space
+    character. See plugins/ directory for sample scripts.
+
+    This section must include a name composed of any alphanumeric character
+    that will be used to create the target file, for example:
+
+            [PLUGIN testplug1] or [PLUGIN testplug2]
+
+    The section allow the following configuration directives. They are
+    composed of named directives followed by ':' or '=' and a value.
+
+    enable
+        Is used to disable temporary the plugin monitoring. Default is 'yes'
+        enable. To disable write it enable:no
+
+    program
+        Is used to set the path to the program or script to execute as
+        plugin. This program must print to STDOUT 1 to 3 numbers separated
+        by a space character as result following the number of reports you
+        want. So each plugin can have 1, 2 or 3 graphed data.
+
+    title
+        Is used to set the title of the report page and the index link.
+        Default is set to "Sysusage plugin".
+
+    menu
+        Is used to store the plugin under a submenu of the plugins menu.
+        Default is to store plugin under the "Others" submenu.
+
+    maxthreshold
+        This is the maximum threshold value. Any value equal or upper than
+        this one will generate SMTP and/or Nagios alert if you have enable
+        it.
+
+    minthreshold
+        This is the minimum threshold value. Any value equal or lower of
+        this one will generate SMTP and/or Nagios alert if you have enable
+        it.
+
+    verticallabel
+        This is used to set the vertical label of the graph.
+
+    label1, label2, label3
+        Are used to show a legend for each graphed data, label1 is for the
+        first returned value, label2 for the second and label3 for the last.
+        If you just have one value returned just omit the other labels.
+
+    legend1, legend2, legend3
+        These are use to set the units for Current, Avg and Max values.
+
+    remote
+        This directive must be set to 'no' to prevent execution of the
+        plugin program by a issh call to sysusage in a remote context. This
+        directive is activated by default ('yes').
+
+  Section REMOTE
+    This part allow to run sysusage on remote hosts from a central server.
+    It use ssh to execute sysusage on the destination host with the -r
+    option that force sysusage to not write anything to local data files but
+    to print all result to stdout. As sysusage is run by cron job or daemon
+    mode it can not authenticate interactively to remote host so you must
+    give a ssh user and an identity file with the corresponding
+    configuration option.
+
+    This section must include the name or the ip address of the remote host
+    that will be used to create the target data directory, for example:
+
+            [REMOTE hostname] or [REMOTE host.domain.dom] or [REMOTE 192.168.1.14]
+
+    The section allow the following configuration directives. They are
+    composed of named directives followed by ':' or '=' and a value.
+
+    Once you have installed sysusage on all remote host and exchange the SSH
+    key certificat between the central host and all remote hosts, most of
+    the time you just have to set the ssh_user directive to have it working.
+    Use remote_sysusage directive if sysusage perl script is not installed
+    on the same place than the central server.
+
+    enable
+        Is used to enable/disable the remote host monitoring. Default is
+        'yes' enable. Set it as 'enable=no' to disable it.
+
+    ssh_user
+        Used to defined the ssh user allowed to connect to remote host. By
+        default the value set to SSH_USER configuration option in the
+        GENERAL section will be used.
+
+    ssh_identity
+        Used to set the identity file to connect to remote host without
+        password. By default the value set to SSH_IDENTITY configuration
+        option in the GENERAL section will be used. Usually this is the
+        private key that you've generated using ssh-keygen and most of the
+        time file $HOME/.ssh/id_rsa. You may want to use the default value
+        unless you know exactly what's you are doing.
+
+    ssh_options
+        Use to overwrite the default ssh options, that are:
+
+                -o ConnectTimeout=5 -o PreferredAuthentications=hostbased,publickey
+
+        The default options are set into the SSH_OPTIONS configuration
+        option in the GENERAL section. You may want to use the default value
+        unless you know exactly what's you are doing.
+
+    ssh_command
+        You can overwrite the complete ssh command using this directive,
+        this will replace the ssh command, the ssh option, the ssh user and
+        the host part. The sysusage remote command will not be replaced. You
+        may want to use the default value unless you know exactly what's you
+        are doing.
+
+    remote_sysusage
+        Use it to set the path to the rsysusage command that must be used on
+        the remote host, SysUsage will automatically add the -r option to
+        cause the remote execution mode.
+
+THRESHOLD NOTIFICATION
+  SMTP alert
+    Sysusage use an external perl script to send SMTP alert and/or Nagios
+    checks when a max or min threshold is reached. This program is named
+    sysusagewarn. All options of the configuration file in section [ALARM]
+    are use by sysusage to call this program. If they are correctly set you
+    don't have to take care of the parameters given to this program. If you
+    want to use this program outside sysusage, here are the command line
+    options it understand:
+
+            Usage: sysusagewarn -t subject -c current_value -v threshold_value
+                            [-s smtp_srv] [-f from] [-d to] [-b hostname_prog]
+
+            -t subject : Subject of the alarm
+            -c value   : Current value monitored by sysusage.pl
+            -v value   : Threshold value used.
+            -s host    : SMTP server name or ip where to send email.
+            -f from    : Sender email address of the alarm message.
+            -d to      : Destination address of the alarm message.
+            -b path    : Path to program hostname. Default is /bin/hostname
+            -n path    : Path to Nagios program submit_check_result. Default none. 
+            -l value   : Alarm level (0=OK,1=WARNING,2=CRITICAL). Default: 1. 
+            -r service : Nagios service name to used. Must be any sysusage type of
+                         monitoring defined in the configuration file.
+            -u url     : Url to HTML sysusage output to include in email.
+                         Default: http://hostname.domain/sysusage/
+            -h         : Output this message and exit
+
+  NAGIOS alert
+    SysUsage send check message to Nagios through an external command
+    (submit_check_result). So you need to create the host and associate all
+    sysusage service that you want to monitor with Nagios. The services name
+    correspond to the type of monitoring. For example, if you have enable
+    alarm on memory usage the service sent is 'mem'. There's also specials
+    case with type of monitoring with multiple instance like network
+    monitoring. You need to create a service per instance. For example type
+    'net' will have 'net_eth0' and 'net_lo' and more if you have more
+    network interface. To see if your sysusage alarm messages are well
+    understood by Nagios take a look at the nagios.log file (default to
+    /usr/local/nagios/var/nagios.log).
+
+    To desactivate automatically an alarm reported to Nagios, SysUsage will
+    send each time it run an OK request if every thing is correct for the
+    monitored type.
+
+SENSORS
+    Monitoring of sensors output is based on regexp. To be clear enought
+    here an example:
+
+    Sensors output on my server:
+
+            adt7463-i2c-0-2d
+            Adapter: SMBus I801 adapter at 1480
+            V1.5:        +3.23 V  (min =  +0.00 V, max =  +3.32 V)
+            VCore:       +1.24 V  (min =  +1.10 V, max =  +1.49 V)
+            V3.3:        +3.33 V  (min =  +2.80 V, max =  +3.78 V)
+            V5:          +4.99 V  (min =  +4.25 V, max =  +5.75 V)
+            V12:         +0.11 V  (min =  +0.00 V, max = +15.94 V)
+            CPU_Fan:       0 RPM  (min =    0 RPM)
+            fan2:       10671 RPM  (min = 8095 RPM)
+            fan3:          0 RPM  (min =    0 RPM)
+            fan4:          0 RPM  (min =    0 RPM)
+            CPU Temp:    +69.5°C  (low  =  +2.0°C, high = +91.0°C)
+            Board Temp:  +32.5°C  (low  =  +2.0°C, high = +83.0°C)
+            Remote Temp: +31.2°C  (low  =  +2.0°C, high = +58.0°C)
+            cpu0_vid:   +1.338 V
+
+            adt7463-i2c-0-2e
+            Adapter: SMBus I801 adapter at 1480
+            V1.5:        +3.21 V  (min =  +0.00 V, max =  +3.32 V)
+            VCore:       +1.28 V  (min =  +1.10 V, max =  +1.49 V)
+            V3.3:        +3.32 V  (min =  +2.80 V, max =  +3.78 V)
+            V5:          +4.95 V  (min =  +0.00 V, max =  +6.64 V)
+            V12:         +0.11 V  (min =  +0.00 V, max = +15.94 V)
+            CPU_Fan:    10843 RPM  (min = 8095 RPM)
+            fan2:          0 RPM  (min =    0 RPM)
+            fan3:       9642 RPM  (min = 8095 RPM)
+            fan4:          0 RPM  (min =    0 RPM)
+            CPU Temp:    +57.2°C  (low  =  +2.0°C, high = +91.0°C)
+            Board Temp:  +35.2°C  (low  =  +2.0°C, high = +91.0°C)
+            Remote Temp: +35.8°C  (low  =  +2.0°C, high = +58.0°C)
+            cpu0_vid:   +1.338 V
+
+    Following the sensors kernel module load you could have more or less
+    output than that. To monitor all sensors CPUs temperature on my server I
+    need to add the following lines into sysusage.cfg:
+
+            sensors:CPU Temp:75
+            sensors:Board Temp:45
+            sensors:Remote Temp:45
+
+    This will create 3 graphs based on lines matching 'CPU Temp', an other
+    with lines matching 'Board Temp' and the last with lines matching
+    'Remote Temp'. As I have 2 CPUs for each graph there will be 2 values.
+    You can not report more than 3 values per graph, this is hard coded into
+    sysusage. So if you have more CPUs you will not see more than 3 values.
+    Here it will sent alarm when temperature exceed the given values
+    (75,45,45).
+
+    To monitor fan speed, I just add lines like this in the configuration
+    file:
+
+            sensors:fan2:11000:8095
+            sensors:fan3:11000:8095
+
+    This whil create 2 graphs for fan 2 and fan 3. With an alarm sent when
+    speed exceed 11000 RPM or is lower than 8095 RPM.
+
+    On my personal computer (/etc/sysconfig/lm_sensors => modprobe coretemp)
+    sensors output is:
+
+            coretemp-isa-0000
+            Adapter: ISA adapter
+            Core 0:      +53.0°C  (high = +78.0°C, crit = +100.0°C)
+
+            coretemp-isa-0001
+            Adapter: ISA adapter
+            Core 1:      +50.0°C  (high = +78.0°C, crit = +100.0°C)
+
+    To monitor CPU temprature, I just add this line in my sysusage.cfg:
+
+            sensors:Core:70
+
+    This will generate a graph with 2 graphed data for Core 0 and Core 1.
+
+BUGS
+    Please report any bugs to <gilles _|_At_|_ darold _|_DoT_|_ net>.
+
+FEATURE REQUEST
+    If you think something is missing to have a better view of your system
+    healt, please send to <gilles _|_At_|_ darold _|_DoT_|_ net> your
+    remarqs and feature request.
+
+LICENSE
+    Copyright (C) 2003-2011 Gilles Darold
+
+    This program is free software; you can redistribute it and/or modify it
+    under the terms of the GNU General Public License as published by the
+    Free Software Foundation; either version 3 of the License, or any later
+    version.
+
+    This program is distributed in the hope that it will be useful, but
+    WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General
+    Public License for more details.
+
+    You should have received a copy of the GNU General Public License along
+    with this program; if not, write to the Free Software Foundation, Inc.,
+    51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+
+AUTHOR
+    Gilles Darold <gilles _|_At_|_ darold _|_DoT_|_ net>
+
+ACKNOWLEGMENT
+    I want ot thanks all the people who help to build this tool with a very
+    special thank to Marat Dyatko for the web design contribution.
+

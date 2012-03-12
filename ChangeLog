@@ -1,0 +1,354 @@
+2012-03-11: v5.2
+
+	- Add current/max/average values on jqplot graphs legend. Thanks to
+	  Josian Larcheveque and Steve Bremer for the feature request.
+	- The jqplot graph legends has move to the bottom of the graph.
+	- Fix detection of an already running sysusagejqgraph instance.
+	- Update online documentation to add missing information on cpuall.
+	- Update packaging files version.
+
+UPGRADE: only the perl scripts in the bin/ directory have changed so you can
+just overide your current files.
+
+2012-03-03: v5.1
+
+	- Fix wrong information on hostname, uptime and sysstat version of a
+	  remote server. Thanks to Josian Larcheveque for the patch.
+	- Fix missing process name on thread and process reports on remote
+	  host. Thanks to Josian Larcheveque for the patch. 
+	- Add 'cpuall' target to only report global statistics on all CPUs. Use
+	  it if you have lot of CPUs. Thanks to Pavel Niederle for the feature
+	  request.
+	- Fix an issue in reporting null data from plugins.
+	- Add missing alarm notification on plugin threshold exceed. Thanks to
+	  Pavel Niederle for the report.
+	- Fix missing information into kernel.txt data file for remote hosts.
+	- Fix uptime and kernel version report of a remote host.
+
+UPGRADE: only the perl scripts in the bin/ directory have changed. If you want
+to replace cpu target by cpuall in your configuration file to only report global
+CPU usage, you may want to remove all cpuN and cpudistN data file in the data
+repository (just keep files cpu and cpudist, others cpu files with a number can
+be removed).
+
+2011-11-24: v5.0
+
+This is a new major version that allow SysUsage to be run in a central place to
+collect and graph statistics from multiple remote servers. An other new feature
+is the possibility to delay alarm after a given number of attempts.
+
+	- Modify CSS sysusage.css to absolute position instead of relative to
+	  fix a display problem on desktop/browser with resolution < 1024.
+	  Thanks to Paul Rubin for the patch.
+	- Fix positioning of copyright in start page.
+	- Change HTML output default install directory to be /var/www/sysusage
+	  instead of /var/www/htdocs/sysusage or /var/www/html/sysusage if the
+	  htdocs directory doesn't exists.
+	- Fix padding between logo and first tab in jqplot output.
+	- Remove support to sysstat version < 5.1.3 that do not have support for
+	  -p option and migrate the code to get sysstat version from sysusage
+	  into Sar.pm
+	- Add attempt counter to delay threshold min or max exceed before
+	  calling the alarm script. You can specify an attempt number per
+	  monitored target by adding an attempt count between brackets after
+	  the max and/or min threshold. For example:
+
+		load:8(4):
+		proc:httpd:25(3):0(2)
+
+	  this will call the alarm program if the load average is upper than 8
+	  after 4 consecutive sysusage run interval. The second will warn if
+	  the number of httpd process is upper than 25 after 3 successive run
+	  or two successive run if no httpd process is running. The last can
+	  be useful if sysusage run just when httpd is restarted. Thanks to
+	  Paul Rubin for the feature request.
+	- Nagios OK message is now sent after lower threshold alarm recovery.
+	- The old sysusage.cfg file is no more renamed into sysusage.cfg.old
+	  after an upgrade install, but instead the new one is created as
+	  sysusage.cfg.new
+
+	- Use Proc::Queue to limit child process queue size, this Perl module
+	  is now required to run sysusage.
+	- Add new configuration section [REMOTE hostname] that allow sysusage to
+	  be executed on a remote host. This allow to run sysusage from a central
+	  server and sysusagegraph one time on this server, see documentation for
+	  more information.
+	- Add 'remote' configuration option to PLUGIN section to disable/enable
+	  the plugin on remote host execution. Default value is 'yes', if you
+	  don't want to execute the plugin on remote host set it to 'no'.
+	- Allow space characters between bracket and the section's name in the
+	  configuration file.
+	- Allow use of ':' or '=' character for directive / value separator into
+	  the GENERAL, ALARM, PLUGIN and REMOTE sections. MONITOR section still
+	  only use the ':' separator.
+	- Several directive have also been added to the GENERAL section:
+	  PROC_QSIZE, RESRC_URL, SSH_BIN, SSH_OPTION, SSH_USER and SSH_IDENTITY.
+	  See documentation.
+
+UPGRADE: backward compatibility with previous data files have been preserved but
+those files will be placed under a subdirectory per hostname. You will need to
+replace all Perl scripts, javascript and css files so it should be better to
+proceed to a full install. New configuration file will be copied as sysusage.cfg.new
+
+
+2011-01-17: v4.0
+
+	- Add support to jquery rendered graphs. You just have to replace
+	  sysusagegraph by sysusagejqgraph on you cron command line. With this
+	  graph renderer configuration options FLAMING,HIRES,LINE_SIZE are not
+	  used. This feature use jqPlot a plotting and charting plugin for the
+	  jQuery Javascript framework. See: http://www.jqplot.com/ for more.
+	  Thanks to Chris Leonello for his great library.
+	- Add missing help/info on some sar output.
+	- Fix some CSS errors in sysusage.css
+	- Update documentation.
+
+UPGRADE: This release is fully compatible with 3.3 version, so if you don't want
+to reinstall all using Makefile.PL you can just copy sysusagejqgraph into the
+bin directory and untar resources/jqplot-sysusage.tar.gz into the HTML output
+directory and replace the css files of the HTML output directory with the css
+files from the resources directory.
+
+
+2010-07-30: v3.3
+
+	- Add I/O workload per device. I/O workload is the relation between TPS
+	  (transfers per second) and IOPS (I/O operations measured in seconds)
+	  of a device. If the tps returned by sysstat reach the max theoretical
+	  IOPS, your storage subsystem is saturated. See 'dev' monitoring config
+	  directive and Documentation/Configuration/Specials Cases
+	- Add indication of the maximum I/O throughput of a disk, and may
+	  suggest where a I/O bottleneck can occur. This is based on:
+	  Maximum disk throughput (KB/s) = (rd_sec/s + wr_sec/s) * 50 / %util
+	- Change sysusage graph label "Percent cached swap used" by
+	  "Percent swap used by cache".
+	- Alarm on high memory load is know calculated in percentage of real
+	  memory used, i-e: without cache and buffer memory usage.
+	- Suppress install warning on hddtemp and sensors if they not exists.
+	- Allow multiple recipient to alarm report by using a coma separated
+	  list of email adresses as value of the TO configuration directive.
+
+UPGRADE: Just override bin/sysusage and bin/sysusagegraph.
+
+2010-02-01: v3.2
+
+	- Fix use of wrong 'work' threshold notification value, Kb instead of %.
+	- Add submenu in Plugins section. See 'menu' configuration option in
+	  [PLUGIN] section.
+	- Add new line char after Threshold Max legend in graph.
+
+UPGRADE: Just override bin/sysusage and bin/sysusagegraph.
+
+2010-01-12: v3.1
+
+	- This new release integrate the great work of Marat Dyatko on new
+	  web design. I hope you will love it. Thanks a lot Marat !
+	  This include Code licensed under the BSD License from Yahoo! Inc.
+	  This is to have IE compatibility on CSS menu. If this brake something
+	  for you, let me know.
+	- Meta-tag refresh has been removed in favor of JavaScript refresh to.
+	  only refresh graphs images without full page reload. That's an other
+	  addon of Marat Dyatko.
+	- Moved css file, Javascript, logo and extra images to resources/ dir.
+	  So if you want you can customized more easily the web design.
+	- Fix problem with localization. Output pf the sar, and df command are
+	  now forced to default locale C. Every command is executed with the
+	  environment variable LC_ALL=C.
+	- Fix utf8 and russian(all?) locale, added "use open ':locale';" in
+	  Sar.pm. Thanks to Ilya for the patch.
+	- Fix bug in check_running() method in sysusage where it was reporting
+	  a process when none confusing with sysusagegraph. Thanks to Josian
+	  Larcheveque for the report.
+	- Fix bug on device monitoring where values was always null if device
+	  name was containing an underscore. Thanks to Josian Larcheveque for
+	  the report.
+	- Add missing FLAMING option in default configuration file. Disable
+	  by default.
+	- Add HIRES configuration directive in GENERAL section to allow fine
+	  granularity of the data. Set it to any hour interval (value must be
+	  an integer between 1 to 23). Disable by default. Thanks to Michael
+	  Bugaev for the feature request.
+	- Change process list command 'ps awx ...' by 'ps -e ...'
+	- Add 'tproc' configuration directive in MONITOR section to monitor
+	  number of thread instead of process (proc). Process are monitored
+	  with 'ps -e' and thread with 'ps -eL'.
+	- Update packaging script with new sysusage site URL.
+	- Set disk usage exclusion as dynamic menu on sysusagegraph to avoid
+	  displaying link to old data file.
+	- Update web site to reflect changes and add a link to an html page
+	  referencing sites hosting SysUsage Plugins.
+
+UPGRADE: Just overwrite the perl Sar.pm module, perl scripts and copy CSS, JS
+and images files from the resources/ directory to the HTML output dir. This
+release is fully backward compatible with data files.
+
+2009-09-29: v3.0
+
+	- Restrict network report to active interface.
+	- Add device aliasing to change device name in web interface
+	- Rewrite install script, there's no more question. It is now installed
+	  with a default configuration file
+	- Makefile.PL now allow command line arguments to overwrite default
+	  install path
+	- The sysusage.spec file used to build RPM package has been updated and
+	  moved to the packaging/RPM/ directory. This directory also include
+	  all files to make a Slackware or debian package
+	- Add a SlackBuild in packaging/slackware/ to create Slackware package
+	- Complete rewrite of the interface with CSS dropdown menu
+	- Allow regexp in process monitoring to differentiate some process
+	- Remove warning when kernel.txt not exist at first sysusagegraph run
+	- Add URL configuration directive in the [ALARM] section to overwrite
+	  the default url 'http://hostname.domain/sysusage/' sent into the
+	  warn message. Thank to Josian Larcheveque for the report
+	- Add [CUSTOM name] section in configuration file to allow the use
+	  of monitoring plugins. See README file for more details
+	- Add plugin example into the plugin directory
+	- Add help at end of graph views to explain what are the graphed values
+	- Update documentation to reflect these new features
+	- Complete rewrite of CPU monitoring which now show distribution usage
+	  (user/nice/system), global usage and virtual cpus usage (steal/guest)
+	- The 'wait' configuration keyword is now obsolete. See CPU monitoring
+	  rewrite
+	- Change PID_FILE configuration option to PID_DIR
+	- Add read/write sectors per second for device, automatically added if
+	  the "dev" monitoring type is present in config file
+	- Add hyperlink to Sebastien Godard sysstat tool into HTML header
+	- Fix alarm on I/O request that was overwrite by I/O block
+	- Add SKIP configuration directive into ALARM section. There's now two
+	  possibility to desactivate sysusage on a given period. If SKIP is set
+	  in the GENERAL section sysusage will stop immediatly with no pooling
+	  If it is set into the ALARM section, it will not send alarm in the
+	  given period. The last one was the old behaviour
+	- Update licence information as SysUsage is now under GPL v3
+	- Add a daemon mode to run sysusage under the minute so without the
+	  help of crond. See DAEMON configuration directive
+	- Prevent sysusage to run if INTERVAL is less than 10 seconds and more
+	  than 300 seconds (5 minutes);
+	- Add average of CPU time for I/O requests issued on device. This is
+	  automatically included with 'dev' configuration type
+	- Add inode usage with disk space monitoring
+	- Add rrdtool graph random flamming style for fun
+	- Fix bug in hddtemp report where rrdfiles were not created
+	- Add Hrule in rrdtool graph to show thresold max when available
+	- Fix case with device with / in sar report.
+
+    UPGRADE: you need a fresh install as many rrdfiles has changed. You may
+	rename your html output directory if you want to preserve history
+	Version 3.0 is not compatible with older version
+
+
+2009-07-08: v2.12
+
+	- Fix incorrect warning on socktw report type. Thank to Josian
+	Larcheveque for the report
+	- Add report of the number of active/passive TCP connections per second
+	See output of "sar -n TCP"
+	- Add report of the number of receveid/sent TCP segments per second
+	See output of "sar -n TCP"
+
+2009-06-11: v2.11
+
+	- Fix memory usage report. Real used memory (without cache) was wrong
+	Thank to Stephane Silly for the report
+	- Add memory cached+kernel buffer report in memory stats
+	- Add report of socket in TIME_WAIT state
+
+2009-02-10: v2.10
+
+	- Fix missing replacement of underscore in pathname for queue or disk
+	- Fix missing prompt on "What device do you want to monitor" question
+	- Fix warning when hddtemp is not found during installation
+	- Force df to only report local disk usage excluding tmpfs
+	- Add monitoring of sensors temperature and fan speed following regexp
+	  See INSTALL file for more details (chap. SENSORS)
+
+2008-09-15: v2.9
+
+	- Sysusage now support new versions of sysstat > 8
+	- Add regexp in disk monitoring exclusion
+	- Remove plist-sz and runq-sz from loadaverage report to render only
+	  load average for the last, 5 and 15 minutes load
+	- Add RRD information to debug mode
+	- You can now run debug mode with the --debug parameter with sysusage
+	  and sysusagegraph
+	- Memory is now returned in bytes to fix Y-axis label (Gb was shown as
+	  Mb)
+	- Memory max threshold MUST now be given in percent (so lower than 100)
+	- Change/clarify some graph label/legend
+	- Add CPU usage for device (see dev monitoring configuration option)
+	  Following sysstat version use -p option and 'human' device name or
+	  you need to give the devm-n for version < 5.1.3. See sar -d 1 1
+	- Add amount of memory needed for current workload. This is an estimate
+	  of how much RAM/swap is needed to guarantee that there never is out
+	  of memory. The max threshold is the percentage of memory needed
+	- Fix detection of already running sysusage instance
+	- Running 'perl Makefile.PL QUIET' will create default configuration
+	  file and default install
+	- Fix open file report as systat now only report open file instead of
+	  percentage to filemax
+	- Add RPM .spec file and a default configuration file with RH like paths
+	  for easy RPM build. This is done in respect of the Fedora Core Team
+	  work. To build your rpm: rpmbuild -bb --clean sysusage.spec
+
+2008-06-12: v2.8
+
+	- Add hard drive temperature monitoring using hddtemp
+
+2008-01-23: v2.7
+
+	- Allow regexp in disk usage path exclusion
+	- Restrict process count to column 5 of command 'ps axw' return
+	- Fix bug in swap alarm report
+	- Fix Makefile.PL sysusage.cfg warning
+	- Add support for Nagios report using submit_check_result
+	- Fix skip check when time range is running over the next day
+	- Add multiple skip time range support
+	- Move project to SourceForge
+
+2007-10-08: v2.6
+
+	- Add support for sysstat > 8.0 with network rx/tx stat now
+	reported in Kb
+
+2007-04-30: v2.5
+
+	- Fix locale parsing problem
+
+2007-02-21: v2.4
+
+	- Add CPU iowait statistics
+	- Update documentation
+	- Add -P option to 'df' system command to prevent line break
+
+2006-12-12: v2.3
+
+	- Add exclusion of mount point from disk space monitoring. Done
+	by adding a semi-colon separated list of mount point to exclude
+	Ex: disk:98:/oracle/data;/home
+
+2005-07-24: v2.2
+
+	- Add auto-removal of pid file if no sysusage or sysusagegraph
+	process are running. Use 'ps -ef' system command
+
+2004-02-16: v2.1
+
+	- Add time range to skip sending alarm
+
+2003-10-10: v2.0
+
+	- Complete code rewrite. Use rrdtool now
+	- Improve speed, run hundred time faster
+	- Simplify configuration
+	- Add alarm report by mail
+
+	See documentation for more details
+
+2003-07-01: v1.1
+
+	- Add Min Threshold on process monitoring
+
+2003-02-06:
+
+	- Initial revision 1.0
+

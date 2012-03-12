@@ -1,0 +1,157 @@
+SysUsage v5.2 - System Monitoring Tool
+
+REQUIREMENT
+
+  rrdtool
+    You need to install rrdtool. You can find it at:
+
+            http://people.ee.ethz.ch/~oetiker/
+
+    To use the RRDs perl module you must use the following command to
+    compile the distrib:
+
+            make site-perl-install
+
+    This installation is optional if sysusage is installed on a remote host.
+
+  sysstat
+    You also need sar to collect statistics. Sar is part of the sysstat
+    package. You can find it here :
+
+            http://freshmeat.net/projects/sysstat/
+
+    If you plan to use threshold notification you must have Net::SMTP
+    installed. It can be found on CPAN (http://search.cpan.org)
+
+  Perl modules
+    Since release 5.0 sysusage can be run in a central place to collect remote
+    sysusage statistics using ssh. The remote calls are proceed simultaneously
+    using fork and the Proc::Queue Perl module.
+
+    If you're plan tu use sysusagegraph instead of sysusagejqgrpah you will also
+    need the GD and GD::Graph3D Perl modules.
+
+    All these modules are always available from CPAN (http://search.cpan.org/)
+    and may at least be installed on the central server. On remote host this is
+    optional and depend if you want to run it on each server or by ssh from a
+    central place.
+
+  Nagios nsca client (optional)
+    If you want to send message to Nagios you need to install
+    nsca-2.7.2.tar.gz or a more recent version. You can get it here:
+
+            http://sourceforge.net/projects/nagios/files/
+
+  hddtemp and sensors (optional)
+    If you want to monitor your hard drive temperature you must install a
+    small utility called hddtemp. You can download it from
+    http://download.savannah.gnu.org/releases/hddtemp/. Run it to see if
+    your hard drive have a temperature sensor.
+
+    You can also use sensors to monitor your cpu temperature and fan speed.
+    If you harware support it run sensors-detect and load the required
+    kernel modules at boot time.
+
+INSTALLATION
+
+  Quick install
+    Simply run the following commands:
+
+            perl Makefile.PL
+            make && make install
+
+    By default it will copy the perl programs into /usr/local/sysusage/bin
+    and the HTML output will be done to /var/www/htdocs/sysusage/. The
+    configuration file is /usr/local/sysusage/etc/sysusage.cfg and all RRD
+    Bekerley DB databases from rrdtool will be saved under
+    /usr/local/sysusage/rrdfiles.
+
+    If you plan to run sysusage on different servers from a cntral place you
+    may just want to install the rsysusage Perl script on remote hosts. So
+    proceed as follow:
+
+            perl Makefile.PL REMOTE=1
+            make && make install
+
+    It will copy the only the rsysusage into /usr/local/sysusage/bin and
+    the configuration file under /usr/local/sysusage/etc/sysusage.cfg. The
+    RRD data directory will be created under /usr/local/sysusage/rrdfiles
+    but just to hold the *.cnt files relatives to the count of alert attempt
+    on threshold exceed.
+
+  Custom install
+    You can overwrite all install path with the following Makefile.PL
+    arguments. Here are the default values:
+
+            BINDIR=/usr/local/sysusage/bin
+            CONFDIR=/usr/local/sysusage/etc
+            PIDDIR=/usr/local/sysusage/etc
+            BASEDIR=/usr/local/sysusage/rrdfiles
+            PLUGINDIR=/usr/local/sysusage/plugins
+            HTMLDIR=/var/www/htdocs/sysusage
+	    MANDIR=/usr/local/sysusage/doc
+	    DOCDIR=/usr/local/sysusage/doc
+	    REMOTE=
+
+    For example on a RedHat System you may prefer install SysUsage as this:
+
+            perl Makefile.PL BINDIR=/usr/bin CONFDIR=/etc PIDDIR=/var/run \
+                    BASEDIR=/var/lib/sysusage HTMLDIR=/var/www/html/sysusage
+
+    If you are installing sysusage on a host that will be call by ssh from a
+    central place, you may want to install just what is necessary and not more:
+
+        perl Makefile.PL BINDIR=/usr/bin CONFDIR=/etc PIDDIR=/var/run \
+                MANDIR=/usr/man/man1 DOCDIR=/usr/share/doc/sysusage \
+                REMOTE=1
+
+    This will just install the rsysusage Perl script, the configuration file and
+    all documentation. So that you don't need to install extra Perl modules and
+    other graphics related things.
+
+  Package/binary install
+    In directory packaging/ you will find all scripts to build RPM, slackBuild
+    and debian package. See README in this directory to know how to build these
+    packages.
+
+  Previous version
+    Previous version used to ask a lot of questions during install, this was
+    removed since version 3.0 to the benefice of simplicity and a default
+    configuration file.
+
+USAGE
+    SysUsage consist in two perl scripts, sysusage and sysusagegraph. Once
+    you have correctly installed and configured SysUsage the best way to
+    execute them is by cron job.
+
+  sysusage
+    The script sysusage is responsible of collecting system informations at
+    a given interval and store them into rrdtool database files.
+
+    As it is very fast you can set running interval time to 1 minute. This
+    is the default pooling interval used in configuration and graph reports.
+    If you change this interval you must also change it in the configuration
+    file otherwise your graph will be false. See the INTERVAL configuration
+    directive.
+
+    Here is how I use it with a default installation:
+
+            */1 * * * * /usr/local/sysusage/bin/sysusage > /dev/null 2>&1
+
+  sysusagegraph or sysusagejqgraph
+    The perl script sysusagegraph is used to draw PNG graphs and write HTML
+    file. As he knows the pooling interval given in the configuration file
+    it can be run at any time. I used to run it each five minutes but you
+    can run it each hours or more this is the same.
+
+            */5 * * * * /usr/local/sysusage/bin/sysusagegraph > /dev/null 2>&1
+
+    If you want to use the jqplot javascript library instead of rrdGraph, just
+    call the dedicated perl script:
+
+            */5 * * * * /usr/local/sysusage/bin/sysusagejqgraph > /dev/null 2>&1
+
+See README file for more information on configuration and others.
+
+Enjoy,
+
