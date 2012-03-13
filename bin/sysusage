@@ -580,10 +580,10 @@ sub mon_memory
 
 	if (($type eq 'mem') && exists $CMD{'mem'}) {
 		# Total memory in use +/- shared/buffer/cache
-		$meminfo{kbmemused} *= 1000;
-		$meminfo{kbbuffers} *= 1000;
-		$meminfo{kbcached} *= 1000;
-		$meminfo{kbmemshrd} *= 1000 if (exists $meminfo{kbmemshrd});
+		$meminfo{kbmemused} *= 1024;
+		$meminfo{kbbuffers} *= 1024;
+		$meminfo{kbcached} *= 1024;
+		$meminfo{kbmemshrd} *= 1024 if (exists $meminfo{kbmemshrd});
 		$meminfo{realused} = $meminfo{kbmemused} - $meminfo{kbbuffers} - $meminfo{kbcached};
 		$meminfo{realused} -= $meminfo{kbmemshrd} if (exists $meminfo{kbmemshrd});
 		$meminfo{kbcached} += $meminfo{kbbuffers};
@@ -610,7 +610,7 @@ print "SWAP: used => ", $meminfo{'%swpused'}, "%, cached => ", $meminfo{'%swpcad
 	}
 	if (($type eq 'work') && exists $CMD{'work'}) {
 		# Total memory in use without shared/buffer/cache
-		$meminfo{kbcommit} *= 1000;
+		$meminfo{kbcommit} *= 1024;
 print "WORK: memory needed => $meminfo{kbcommit} B, Percent => $meminfo{'%commit'} %\n" if ($Config{'GENERAL'}{'DEBUG'});
 
 		if (!$meminfo{kbcommit}) {
