@@ -224,15 +224,6 @@ sub parseSarOutput
 			$headers[$j] =~ s#/s##g;
 			# Change decimal character to perl
 			$values[$j] =~ s/,/\./;
-			if ($values[$j] !~ /[a-z]/i) {
-				# Round decimal up to .50
-				if ($values[$j] gt 50) {
-					$values[$j]++;
-				}
-				# Store it as integer
-				$values[$j] = int($values[$j]);
-			}
-
 			# New version of sar report proc and cswch at same time
 			if ( ($#headers == 1) && ($headers[$j] eq 'cswch') ) {
 				$self->{report}{'cswch'}{$headers[$j]} = $values[$j];
