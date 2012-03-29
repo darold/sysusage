@@ -394,7 +394,7 @@ print "DEVWORK $name: \%read = $r_work, \%write = $w_work, tps = $tps, iops = $i
 			$target = 'dev_';
 			$target .= $name;
 			my $blks = $devinfo{$name}{'rd_sec'} + $devinfo{$name}{'wr_sec'};
-			my $busy = $devinfo{$name}{'%util'} || 1;
+			my $busy = $devinfo{$name}{'%util'};
 			$busy = 1.00 if ($busy == 0.00);
 			my $throughput = sprintf("%.2f", ($blks*50)/$busy );
 print "DEVTPUT $name: ($blks*50)/$busy = ", $throughput, "\n" if ($Config{'GENERAL'}{'DEBUG'});
