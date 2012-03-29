@@ -396,7 +396,7 @@ print "DEVWORK $name: \%read = $r_work, \%write = $w_work, tps = $tps, iops = $i
 			my $blks = $devinfo{$name}{'rd_sec'} + $devinfo{$name}{'wr_sec'};
 			my $busy = $devinfo{$name}{'%util'} || 1;
 			$busy = 1.00 if ($busy == 0.00);
-			my $throughput = int( ($blks*50)/$busy );
+			my $throughput = sprintf("%.2f", ($blks*50)/$busy );
 print "DEVTPUT $name: ($blks*50)/$busy = ", $throughput, "\n" if ($Config{'GENERAL'}{'DEBUG'});
 			$target = $name;
 			$target =~ s#_#__#g;
@@ -439,8 +439,8 @@ print "MEM: used => $meminfo{kbmemused} B, real used (without shared/buffer/cach
 			&insertIntData($host, 'mem', $meminfo{kbmemused}, $meminfo{realused}, $meminfo{kbcached});
 		}
 		# memused: percentage of memory used.
-		my $totalmem = int(($meminfo{kbmemused} / ($meminfo{'%memused'} || 1)) * 100);
-		my $realpercentused = int(($meminfo{realused}*100)/($totalmem || 1));
+		my $totalmem = sprintf("%.2f", ($meminfo{kbmemused} / ($meminfo{'%memused'} || 1)) * 100);
+		my $realpercentused = sprintf("%.2f", ($meminfo{realused}*100)/($totalmem || 1));
 		&send_warning($host, 'mem','mem', 'Memory', $realpercentused);
 	}
 	if (($type eq 'swap') && exists $CMD{'swap'}) {
@@ -899,7 +899,6 @@ sub mon_sensors
 		if ($l =~ /($pattern)[^:]*:\s+([^\s]+)/) {
 			my $tmp = $2;
 			$tmp =~ s/[^0-9\-\.]//g;
-			$tmp = int($tmp);
 			if ($tmp) {
 				push(@temperature, $tmp);
 				last if ($#temperature == 1);
