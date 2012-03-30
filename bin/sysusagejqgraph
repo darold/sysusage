@@ -2046,19 +2046,19 @@ $data
 		title: '$LABELS{$target}{title}',
 		series: [
 			{
-			label: '$LABELS{$target}{legend_A}: current=$vals_current{0}{current}, max=$vals_legend{0}{max}, average=$vals_legend{0}{average} - ',
+			label: '$LABELS{$target}{legend_A}: current=$vals_current{0}{current}, max=$vals_legend{0}{max}, average=$vals_legend{0}{average}',
 			lineWidth:1,
 			neighborThreshold: 0,
 			showMarker:false
 			},
 			{
-			label: '$LABELS{$target}{legend_B}: current=$vals_current{1}{current}, max=$vals_legend{1}{max}, average=$vals_legend{1}{average} - ',
+			label: '$LABELS{$target}{legend_B}: current=$vals_current{1}{current}, max=$vals_legend{1}{max}, average=$vals_legend{1}{average}',
 			lineWidth:1,
 			neighborThreshold: 0,
 			showMarker:false
 			},
 			{
-			label: '$LABELS{$target}{legend_C}: current=$vals_current{2}{current}, max=$vals_legend{2}{max}, average=$vals_legend{2}{average} - ',
+			label: '$LABELS{$target}{legend_C}: current=$vals_current{2}{current}, max=$vals_legend{2}{max}, average=$vals_legend{2}{average}',
 			lineWidth:1,
 			neighborThreshold: 0,
 			showMarker:false
@@ -2102,10 +2102,18 @@ $data
 			constrainZoomTo:'x',
 			showVerticalLine:true,
 			showHorizontalLine:false,
-			showCursorLegend:true,
+			showCursorLegend:false,
 			showTooltip: false
 		},
-		highlighter:{show: false}
+		highlighter:{
+			show: true,
+			showTooltip: true,
+			tooltipLocation: 'nw',
+			tooltipAxes: 'both',
+			lineWidthAdjust: 2,
+			useAxesFormatters: true,
+			formatString:'<table class="jqplot-highlighter"><tr><td>Time:</td><td>%s</td></tr><tr><td>Value:</td><td>$format</td></tr></table>',
+		}
 	});
 EOF
 	#----------------------------------------------------------------
@@ -2218,8 +2226,24 @@ $data
 				numberTicks: 10
 			},
 		},
-		cursor:{zoom:true,constrainZoomTo:'x'},
-		highlighter:{show:true}
+		cursor:{
+			show:true,
+			zoom:true,
+			constrainZoomTo:'x',
+			showVerticalLine:true,
+			showHorizontalLine:false,
+			showCursorLegend:false,
+			showTooltip: false
+		},
+		highlighter:{
+			show: true,
+			showTooltip: true,
+			tooltipLocation: 'nw',
+			tooltipAxes: 'both',
+			lineWidthAdjust: 2,
+			useAxesFormatters: true,
+			formatString:'<table class="jqplot-highlighter"><tr><td>Week day:</td><td>%s</td></tr><tr><td>Value:</td><td>$format</td></tr></table>',
+		}
 	});
 EOF
 	#----------------------------------------------------------------
@@ -2331,8 +2355,24 @@ $data
 				numberTicks: 10
 			},
 		},
-		cursor:{zoom:true,constrainZoomTo:'x'},
-		highlighter:{show:true}
+		cursor:{
+			show:true,
+			zoom:true,
+			constrainZoomTo:'x',
+			showVerticalLine:true,
+			showHorizontalLine:false,
+			showCursorLegend:false,
+			showTooltip: false
+		},
+		highlighter:{
+			show: true,
+			showTooltip: true,
+			tooltipLocation: 'nw',
+			tooltipAxes: 'both',
+			lineWidthAdjust: 2,
+			useAxesFormatters: true,
+			formatString:'<table class="jqplot-highlighter"><tr><td>Month day:</td><td>%s</td></tr><tr><td>Value:</td><td>$format</td></tr></table>',
+		}
 	});
 EOF
 	#----------------------------------------------------------------
@@ -2444,8 +2484,24 @@ $data
 				numberTicks: 10
 			},
 		},
-		cursor:{zoom:true,constrainZoomTo:'x'},
-		highlighter:{show:true}
+		cursor:{
+			show:true,
+			zoom:true,
+			constrainZoomTo:'x',
+			showVerticalLine:true,
+			showHorizontalLine:false,
+			showCursorLegend:false,
+			showTooltip: false
+		},
+		highlighter:{
+			show: true,
+			showTooltip: true,
+			tooltipLocation: 'nw',
+			tooltipAxes: 'both',
+			lineWidthAdjust: 2,
+			useAxesFormatters: true,
+			formatString:'<table class="jqplot-highlighter"><tr><td>Month:</td><td>%s</td></tr><tr><td>Value:</td><td>$format</td></tr></table>',
+		}
 	});
 
 	\$('#tabs').bind('tabsshow', function(event, ui) {
