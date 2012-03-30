@@ -1854,18 +1854,21 @@ sub createMenu
 
 sub format_size
 {
-	my $val = shift;
+	my ($val, $base) = @_;
 
-        if ($val > 1000000000000) {
-                return  sprintf('%.2f T', $val/1000000000000);
-        } elsif ($val > 1000000000) {
-                return  sprintf('%.2f G', $val/1000000000);
-        } elsif ($val > 1000000) {
-                return  sprintf('%.2f M', $val/1000000);
-        } elsif ($val > 1000) {
-                return  sprintf('%.2f K', $val/1000);
+	$base ||= 1000;
+
+        if ($val > ($base*$base*$base*$base)) {
+                return  sprintf('%.2f T', $val/($base*$base*$base*$base));
+        } elsif ($val > ($base*$base*$base)) {
+                return  sprintf('%.2f G', $val/($base*$base*$base));
+        } elsif ($val > ($base*$base)) {
+                return  sprintf('%.2f M', $val/($base*$base));
+        } elsif ($val > $base) {
+                return  sprintf('%.2f K', $val/$base);
         }
-	return  sprintf('%.2f', $val);
+
+	return sprintf('%.2f', $val);
 }
 
 sub pageHeader
@@ -1984,9 +1987,13 @@ EOF
 		}
 		$count++ if ($found);
 	}
+	my $base = 1000;
+	$base = 1024 if (($target eq 'mem') || ($target eq 'work'));
 	foreach my $i (keys %vals_legend) {
+		$vals_current{$i}{current} = &format_size($vals_current{$i}{current}, $base);
+		$vals_legend{$i}{max} = &format_size($vals_legend{$i}{max}, $base);
 		if ($count) {
-			$vals_legend{$i}{average} = sprintf("%.2f", ($vals_legend{$i}{average}/$count));
+			$vals_legend{$i}{average} = &format_size($vals_legend{$i}{average}/$count, $base);
 		} else {
 			$vals_legend{$i}{average} = '0.00';
 		}
@@ -2574,6 +2581,4 @@ Copyright (c) 2003-2012 Gilles Darold - All rights reserved.
 };
 
 }
-
-
 
