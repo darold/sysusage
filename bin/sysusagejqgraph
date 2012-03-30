@@ -118,6 +118,17 @@ foreach my $dir (sort @mdirs) {
 		}
 	}
 
+	if (open(KFILE, "$Config{'GENERAL'}{'DATA_DIR'}$dir/kernel.txt")) {
+		while (my $l = <KFILE>) {
+			chomp($l);
+			next if ($l !~ /^dev:/);
+			my ($t, $v) = split(/:/, $l);
+			if ($v =~ /^(.*)\((.*)\)/) {
+				$DEVALIAS{$1} = $2;
+			}
+		}
+		close(KFILE);
+	}
 	# Find what to do with the database found
 	if ($#bases >= 0) {
 		&debug("main(): Found " . $#bases + 1 . " rrdtool databases\n");
@@ -1052,7 +1063,7 @@ sub read_config
 				$thres_max = $thres_min;
 				$thres_min = $other;
 			} elsif ($type eq 'dev') {
-				if ($thres_max =~ s/\s*\((.*)\).*//) {
+				if ($thres_max =~ s/\s*\(([^\)]*)\).*//) {
 					$DEVALIAS{"$thres_max"} = $1;
 				}
 				$type = "dev_$thres_max";

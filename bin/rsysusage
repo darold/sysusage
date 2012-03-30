@@ -71,6 +71,7 @@ my %RAID_FACTOR = (
 	'5' => 4,
 	'6' => 5
 );
+my %DEVALIAS = ();
 
 my $SYSSTAT_VERSION = '';
 
@@ -145,6 +146,9 @@ sub do_monitor
 	print "$host\tdatetime\t$curdate\n";
 	print "$host\tuptime\t$uptime\n";
 	print "$host\tsarversion\t$SYSSTAT_VERSION\n";
+	foreach (keys %DEVALIAS) {
+		print "$host\tdevalias\tdev:$_($DEVALIAS{$_})\n";
+	}
 
 	# Get running network interfaces
 	my @ifaces = `LC_ALL=C /sbin/ifconfig | grep -v "^ " | grep -v "^\$" | awk '{print \$1}'`;
@@ -1255,7 +1259,9 @@ sub read_config
 				$thres_min = $other[0];
 			} elsif ($type eq 'dev') {
 				# Remove device alias
-				$thres_max =~ s/\s*\(.*\).*//;
+				if ($thres_max =~ s/\s*\(([^\)]+)\).*//) {
+					$DEVALIAS{$thres_max} = $1;
+				}
 				$type = "dev_$thres_max";
 				if ($#other != 1) {
 					print STDERR "WARNING: see documentation for device workload configuration syntax, disabling...\n" if ($#other > -1);

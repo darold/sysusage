@@ -148,6 +148,17 @@ foreach my $dir (sort @mdirs) {
 		&debug("main(): No rrdtool databases found. You need to run sysusage.pl first\n");
 	}
 
+	if (open(KFILE, "$Config{'GENERAL'}{'DATA_DIR'}$dir/kernel.txt")) {
+		while (my $l = <KFILE>) {
+			chomp($l);
+			next if ($l !~ /^dev:/);
+			my ($t, $v) = split(/:/, $l);
+			if ($v =~ /^(.*)\((.*)\)/) {
+				$DEVALIAS{$1} = $2;
+			}
+		}
+		close(KFILE);
+	}
 	foreach my $b (@bases) {
 		&debug("main(): Generating graphics for base $b\n");
 		&createGraphic($b,$dir);
@@ -1209,7 +1220,7 @@ sub read_config
 				$thres_max = $thres_min;
 				$thres_min = $other;
 			} elsif ($type eq 'dev') {
-				if ($thres_max =~ s/\s*\((.*)\).*//) {
+				if ($thres_max =~ s/\s*\(([^\)]*)\).*//) {
 					$DEVALIAS{"$thres_max"} = $1;
 				}
 				$type = "dev_$thres_max";

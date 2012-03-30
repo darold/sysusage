@@ -79,6 +79,7 @@ my %RAID_FACTOR = (
 	'5' => 4,
 	'6' => 5
 );
+my %DEVALIAS = ();
 
 ####
 # method used to fork as many child as wanted
@@ -294,12 +295,18 @@ sub do_monitor
 		print KFILE "$curdate\n";
 		print KFILE "$uptime\n";
 		print KFILE "$SYSSTAT_VERSION\n";
+		foreach (keys %DEVALIAS) {
+			print KFILE "dev:$_($DEVALIAS{$_})\n";
+		}
 		close(KFILE);
 	} else {
 		print "$host\tkernel\t$kernel\n";
 		print "$host\tdatetime\t$curdate\n";
 		print "$host\tuptime\t$uptime\n";
 		print "$host\tsarversion\t$SYSSTAT_VERSION\n";
+		foreach (keys %DEVALIAS) {
+			print "$host\tdevalias\tdev:$_($DEVALIAS{$_})\n";
+		}
 	}
 
 	# Get running network interfaces
@@ -1251,7 +1258,7 @@ sub process_remote_data
 			print KFILE "$vals\n";
 			close(KFILE);
 			next;
-		} elsif ($target =~ /^(datetime|uptime|sarversion)$/) {
+		} elsif ($target =~ /^(datetime|uptime|sarversion|devalias)$/) {
 			unless(open(KFILE, ">>$Config{'GENERAL'}{'DATA_DIR'}/$host/kernel.txt")) {
 				unlink("$Config{'GENERAL'}{'PID_DIR'}/sysusage.pid");
 				die "ERROR: Can't write to file $Config{'GENERAL'}{'DATA_DIR'}/$host/kernel.txt\n";
@@ -1541,7 +1548,9 @@ sub read_config
 				$thres_min = $other[0];
 			} elsif ($type eq 'dev') {
 				# Remove device alias
-				$thres_max =~ s/\s*\(.*\).*//;
+				if ($thres_max =~ s/\s*\(([^\)]+)\).*//) {
+					$DEVALIAS{$thres_max} = $1;
+				}
 				$type = "dev_$thres_max";
 				if ($#other != 1) {
 					print STDERR "WARNING: see documentation for device workload configuration syntax, disabling...\n" if ($#other > -1);
