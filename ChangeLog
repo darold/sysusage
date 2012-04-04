@@ -1,3 +1,24 @@
+2012-04-04: v5.3
+
+	- Extract cursor tooltip from legend with explicit label on all jqplot
+	  graphics.
+	- Add scaling of the legend values (MAX, CURRENT, AVG). Thanks to Steve
+	  Bremer for the feature request.
+	- Fix support to device aliases in remote execution. Thanks to Josian
+	  Larcheveque for the report.
+	- Cleanup some variables initialisation. Thanks to Steve Bremer for the
+	  patch.
+	- Use a base of 1024 for memory reports. Thanks to Steve Bremer for the
+	  patch.
+	- Disable storing numbers as integers. Thanls to Steve Bremer for the
+	  patch.
+	- SysUsage source code is now hosted on github.org. Get it at:
+		https://github.com/darold/sysusage
+	  Your help to build a better tool is welcome.
+
+UPGRADE: all perl scripts in the bin/ directory have changed so you can just
+overide your current files.
+
 2012-03-11: v5.2
 
 	- Add current/max/average values on jqplot graphs legend. Thanks to

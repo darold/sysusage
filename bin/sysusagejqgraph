@@ -32,7 +32,7 @@ use POSIX qw(locale_h);
 setlocale(LC_ALL, 'C');
 
 
-my $VERSION = '5.2';
+my $VERSION = '5.3';
 
 $| = 1;
 
