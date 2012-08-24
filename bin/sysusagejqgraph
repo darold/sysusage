@@ -1895,7 +1895,7 @@ sub pageHeader
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 
   <!--[if IE]><script language="javascript" type="text/javascript" src="$Config{'GENERAL'}{'RESRC_URL'}jqplot/excanvas.min.js"></script><![endif]-->
-  <link rel="stylesheet" type="text/css" href="$Config{'GENERAL'}{'RESRC_URL'}jqplot/jquery.jqplot.css" />
+  <link rel="stylesheet" type="text/css" href="$Config{'GENERAL'}{'RESRC_URL'}jqplot/jquery.jqplot.min.css" />
   <link rel="stylesheet" type="text/css" href="$Config{'GENERAL'}{'RESRC_URL'}jqplot/jqplot.css" />
   <style type="text/css">
     .ui-tabs-nav {
@@ -1927,10 +1927,11 @@ sub pageHeader
   </style>
 
   <!-- BEGIN: load jquery -->
-  <script language="javascript" type="text/javascript" src="$Config{'GENERAL'}{'RESRC_URL'}jqplot/jquery-1.4.2.min.js"></script>
+  <script language="javascript" type="text/javascript" src="$Config{'GENERAL'}{'RESRC_URL'}jqplot/jquery.min.js"></script>
   <!-- END: load jquery -->
   <!-- BEGIN: load jqplot -->
-  <script language="javascript" type="text/javascript" src="$Config{'GENERAL'}{'RESRC_URL'}jqplot/jquery.jqplot.js"></script>
+  <script language="javascript" type="text/javascript" src="$Config{'GENERAL'}{'RESRC_URL'}jqplot/jquery.jqplot.min.js"></script>
+  <script language="javascript" type="text/javascript" src="$Config{'GENERAL'}{'RESRC_URL'}jqplot/plugins/jqplot.json2.min.js"></script>
   <script language="javascript" type="text/javascript" src="$Config{'GENERAL'}{'RESRC_URL'}jqplot/plugins/jqplot.enhancedLegendRenderer.js"></script>
   <script language="javascript" type="text/javascript" src="$Config{'GENERAL'}{'RESRC_URL'}jqplot/plugins/jqplot.logAxisRenderer.js"></script>
   <script language="javascript" type="text/javascript" src="$Config{'GENERAL'}{'RESRC_URL'}jqplot/plugins/jqplot.dateAxisRenderer.js"></script>
