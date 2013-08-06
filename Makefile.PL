@@ -18,14 +18,14 @@ foreach my $d ('/var/www/htdocs', '/var/www/html') {
 $default_html .= '/sysusage';
 
 # Default install path
-my $BINDIR = $ENV{BINDIR} || '/usr/local/sysusage/bin';
-my $CONFDIR = $ENV{CONFDIR} || '/usr/local/sysusage/etc';
-my $PIDDIR = $ENV{PIDDIR} || '/usr/local/sysusage/etc';
+my $BINDIR = $ENV{BINDIR} || '/usr/local/bin';
+my $CONFDIR = $ENV{CONFDIR} || '/etc';
+my $PIDDIR = $ENV{PIDDIR} || '/var/run';
 my $BASEDIR = $ENV{BASEDIR} || '/usr/local/sysusage/rrdfiles';
 my $PLUGINDIR = $ENV{PLUGINDIR} || '/usr/local/sysusage/plugins';
 my $HTMLDIR = $ENV{HTMLDIR} || $default_html;
-my $MANDIR = $ENV{MANDIR} || '/usr/local/sysusage/doc';
-my $DOCDIR = $ENV{DOCDIR} || '/usr/local/sysusage/doc';
+my $MANDIR = $ENV{MANDIR} || '/usr/local/share/man/man1';
+my $DOCDIR = $ENV{DOCDIR} || '/usr/local/share/doc/sysusage';
 my $DESTDIR = $ENV{DESTDIR} || '';
 my $REMOTE = $ENV{REMOTE} || 0;
 
