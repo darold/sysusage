@@ -534,8 +534,8 @@ print "DEV $name: %util = $devinfo{$name}{'%util'}, rd_sec/s = $devinfo{$name}{'
 				my $r_work = 0;
 				my $w_work = 0;
 				if ($devinfo{$name}{'rd_sec'} && $devinfo{$name}{'wr_sec'}) {
-					$r_work = $devinfo{$name}{'rd_sec'} / ($devinfo{$name}{'rd_sec'} + $devinfo{$name}{'wr_sec'});
-					$w_work = $devinfo{$name}{'wr_sec'} / ($devinfo{$name}{'rd_sec'} + $devinfo{$name}{'wr_sec'});
+					$r_work = $devinfo{$name}{'rd_sec'} / (($devinfo{$name}{'rd_sec'} + $devinfo{$name}{'wr_sec'}) || 1);
+					$w_work = $devinfo{$name}{'wr_sec'} / (($devinfo{$name}{'rd_sec'} + $devinfo{$name}{'wr_sec'}) || 1);
 				}
 				$w_work ||= 1;
 				$r_work ||= 1;
