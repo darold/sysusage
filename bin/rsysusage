@@ -215,7 +215,7 @@ sub do_monitor
 	foreach my $name (keys %PLUGIN) {
 		next if (lc($PLUGIN{$name}{enable}) eq 'no');
 		next if ( $RUN_REMOTELY && (lc($PLUGIN{$name}{remote}) eq 'no') );
-		&mon_customized($host, $name, $PLUGIN{$name}{program}, $PLUGIN{$name}{maxthreshold} || 0, $PLUGIN{$name}{minthreshold} || 0, $PLUGIN{$name}{delaythreshold} || 0);
+		&mon_customized($host, $name, $PLUGIN{$name}{program}, $PLUGIN{$name}{maxthreshold} || 0, $PLUGIN{$name}{minthreshold} || 0, $PLUGIN{$name}{delaythreshold} || 0, lc($PLUGIN{$name}{multi}) eq 'yes');
 	}
 
 }
@@ -961,17 +961,33 @@ print "TCP: Active => $info{'active'}/s, Passive => $info{'passive'}/s, Received
 ####
 sub mon_customized
 {
-	my ($host, $type, $program, $maxthres, $minthres, $delaythres) = @_;
+	my ($host, $type, $program, $maxthres, $minthres, $delaythres, $multi) = @_;
 
-	my ($ret1, $ret2, $ret3) = split(/\s/, `LC_ALL=C $program`);
-	chomp($ret3);
+	unless($multi) {
+
+		my ($ret1, $ret2, $ret3) = split(/\s/, `LC_ALL=C $program`);
+		chomp($ret3);
 
 print "PLUGIN $type: returned 1 => $ret1, returned 2 => $ret2, returned 3 => $ret3\n" if ($Config{'GENERAL'}{'DEBUG'});
 
-	if (!$ret1 && $ret2 && $ret3) {
-		&insertIntDataNull($host, $type);
+		if (!$ret1 && $ret2 && $ret3) {
+			&insertIntDataNull($host, $type);
+		} else {
+			&insertIntData($host, $type, $ret1 || 0, $ret2 || 0, $ret3 || 0);
+		}
 	} else {
-		&insertIntData($host, $type, $ret1 || 0, $ret2 || 0, $ret3 || 0);
+		my @ret = `LC_ALL=C $program`;
+		foreach my $t (@ret) {
+			chomp($t);
+			my ($subtype, $ret1, $ret2, $ret3) = split(/:/, $t);
+print "PLUGIN $type: returned $t : type => $subtype, 1 => $ret1, returned 2 => $ret2, returned 3 => $ret3\n" if ($Config{'GENERAL'}{'DEBUG'});
+			my $restype = $type."_".$subtype;
+			if (!$ret1 && $ret2 && $ret3) {
+				&insertIntDataNull($host, $restype);
+			} else {
+				&insertIntData($host, $restype, $ret1 || 0, $ret2 || 0, $ret3 || 0);
+			}
+		}
 	}
 }
 

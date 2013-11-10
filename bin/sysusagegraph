@@ -636,6 +636,17 @@ sub createGraphic
 		$legend3 = $PLUGIN{$target}{legend3};
 		$section = "SysUsage Plugins";
 		$submenu = $PLUGIN{$target}{menu} || 'others';
+	} elsif ($target =~ /^([^_]+)_([^_]+)_([^_]*)(.*)/ && exists $PLUGIN{$1} && ($PLUGIN{$1}{enabled} ne 'no') && ($PLUGIN{$1}{multi} eq 'yes')) {
+		$vlabel  = $3.$4;
+		$legend_A = $PLUGIN{$1}{"$3label1"};
+		$legend_B = $PLUGIN{$1}{"$3label2"};
+		$legend_C = $PLUGIN{$1}{"$3label3"};
+		$legend1 = $PLUGIN{$1}{"$3legend1"};
+		$legend2 = $PLUGIN{$1}{"$3legend2"};
+		$legend3 = $PLUGIN{$1}{"$3legend3"};
+		$section = $1;
+		$submenu = $2;
+		$title   = $3.$4;
 	}
 	push(@LINKS, { ('section' => $section, 'title' => $title, 'url' => "$target.html", 'plugmenu' => "$submenu") } );
 
@@ -744,6 +755,8 @@ sub createGraphic
 			);
 		}
 		&debug("Creating $Config{'GENERAL'}{'DEST_DIR'}$dir/$target-$start.$img_ext\n");
+		my $tgt = $target;
+		$tgt =~ s/:/\\:/g;
 		my $answer = RRDs::graph("$Config{'GENERAL'}{'DEST_DIR'}$dir/$target-$start.$img_ext",
 			'--imgformat', $GRAPH_FORMAT, '--base', 1000, '--upper-limit', $opt_rigid,
 			'--start', $start, '--end', "-$Config{'GENERAL'}{'INTERVAL'}", '--width', $dim_width, '--height', $dim_height,
@@ -751,9 +764,9 @@ sub createGraphic
 			'--color', "SHADEB$color_shadeb", '--color', "GRID$color_grid", '--color', "MGRID$color_mgrid",
 			'--color', "FONT$color_font", '--color', "FRAME$color_frame", '--color', "ARROW$color_arrow",
 			'--vertical-label', $vlabel, '--title', $title,
-                        "DEF:DA=$Config{'GENERAL'}{'DATA_DIR'}$dir/$target:A:AVERAGE",
-                        "DEF:DB=$Config{'GENERAL'}{'DATA_DIR'}$dir/$target:B:AVERAGE",
-                        "DEF:DC=$Config{'GENERAL'}{'DATA_DIR'}$dir/$target:C:AVERAGE",
+                        "DEF:DA=$Config{'GENERAL'}{'DATA_DIR'}$dir/$tgt:A:AVERAGE",
+                        "DEF:DB=$Config{'GENERAL'}{'DATA_DIR'}$dir/$tgt:B:AVERAGE",
+                        "DEF:DC=$Config{'GENERAL'}{'DATA_DIR'}$dir/$tgt:C:AVERAGE",
 			"CDEF:flaming1=DA,40,*,100,/",
 			"CDEF:flaming2=DA,5,*,100,/",
 			@HRULES,
@@ -957,6 +970,10 @@ sub createHTML
 		$title = $PLUGIN{$target}{title};
 		$section = 'Plugins';
 		$submenu = $PLUGIN{$target}{menu} || 'others';
+	} elsif ($target =~ /^([^_]+)_([^_]+)_(.*)/ && exists $PLUGIN{$1} && ($PLUGIN{$1}{enabled} ne 'no') && ($PLUGIN{$1}{multi} eq 'yes')) {
+		$title = $PLUGIN{$1}{title};
+		$section = $1;
+		$submenu = $2;
 	}
 
 	unless(open(HFILE, ">$Config{'GENERAL'}{'DEST_DIR'}$dir/$target.html")) {
