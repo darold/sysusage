@@ -123,87 +123,95 @@ sub parseSarOutput
 			push(@headers, split(m#\s+#, $self->{data}[$i]));
 		}
 		# Try to find the kind of report
-		if ($self->{data}[$i] =~ m#^proc/s#i) {
+		if ($self->{data}[$i] =~ m#^proc/s#) {
 			$type = 'pcrea';
 			next;
 		}
-		if ($self->{data}[$i] =~ m#^cswch/s#i) {
+		if ($self->{data}[$i] =~ m#^cswch/s#) {
 			$type = 'cswch';
 			next;
 		}
-		if ($self->{data}[$i] =~ m#^CPU\s+i\d+#i) {
+		if ($self->{data}[$i] =~ m#^CPU\s+i\d+#) {
 			$type = 'ncpu';
 			$headers[0] = 'number';
 			next;
-		} elsif ($self->{data}[$i] =~ m#^CPU\s+#i) {
+		} elsif ($self->{data}[$i] =~ m#^CPU\s+M#) {
+			$type = 'mcpu';
+			$headers[0] = 'number';
+			next;
+		} elsif ($self->{data}[$i] =~ m#^CPU\s+w#) {
+			$type = 'wcpu';
+			$headers[0] = 'number';
+			next;
+		} elsif ($self->{data}[$i] =~ m#^CPU\s+#) {
 			$type = 'cpu';
 			$headers[0] = 'number';
 			next;
 		}
-		if ($self->{data}[$i] =~ m#^INTR\s+#i) {
+		if ($self->{data}[$i] =~ m#^INTR\s+#) {
 			$type = 'intr';
 			$headers[0] = 'name';
 			next;
 		}
-		if ($self->{data}[$i] =~ m#^pgpgin/s\s+#i) {
+		if ($self->{data}[$i] =~ m#^pgpgin/s\s+#) {
 			$type = 'page';
 			next;
 		}
-		if ($self->{data}[$i] =~ m#^pswpin/s\s+#i) {
+		if ($self->{data}[$i] =~ m#^pswpin/s\s+#) {
 			$type = 'pswap';
 			next;
 		}
-		if ($self->{data}[$i] =~ m#^tps\s+#i) {
+		if (( $self->{data}[$i] =~ m#^tps\s+#) && ($data !~ m#DEV\s+#) ) {
 			$type = 'io';
 			next;
 		}
-		if ($self->{data}[$i] =~ m#^frmpg/s\s+#i) {
+		if ($self->{data}[$i] =~ m#^frmpg/s\s+#) {
 			$type = 'mpage';
 			next;
 		}
-		if ($self->{data}[$i] =~ m#^TTY\s+#i) {
+		if ($self->{data}[$i] =~ m#^TTY\s+#) {
 			$type = 'tty';
 			$headers[0] = 'number';
 			next;
 		}
-		if ($self->{data}[$i] =~ m#^IFACE\s+rxpck/s\s+#i) {
+		if ($self->{data}[$i] =~ m#^IFACE\s+rxpck/s\s+#) {
 			$type = 'net';
 			$headers[0] = 'name';
 			next;
 		}
-		if ($self->{data}[$i] =~ m#^IFACE\s+rxerr/s\s+#i) {
+		if ($self->{data}[$i] =~ m#^IFACE\s+rxerr/s\s+#) {
 			$type = 'err';
 			$headers[0] = 'name';
 			next;
 		}
-		if ($self->{data}[$i] =~ m#^DEV\s+#i) {
+		if ($self->{data}[$i] =~ m#^DEV\s+#) {
 			$type = 'dev';
 			$headers[0] = 'name';
 			next;
 		}
-		if ($self->{data}[$i] =~ m#^kbmemfree\s+#i) {
+		if ($self->{data}[$i] =~ m#^kbmemfree\s+#) {
 			$type = 'mem';
 			next;
 		}
 		# New in sysstat 8.1.5
-		if ($self->{data}[$i] =~ m#^kbswpfree\s+#i) {
+		if ($self->{data}[$i] =~ m#^kbswpfree\s+#) {
 			$type = 'swap';
 			next;
 		}
-		if ($self->{data}[$i] =~ m#^dentunusd\s+#i) {
+		if ($self->{data}[$i] =~ m#^dentunusd\s+#) {
 			$type = 'file';
 			next;
 		}
-		if ($self->{data}[$i] =~ m#^totsck\s+#i) {
+		if ($self->{data}[$i] =~ m#^totsck\s+#) {
 			$type = 'sock';
 			next;
 		}
-		if ($self->{data}[$i] =~ m#^runq-sz\s+#i) {
+		if ($self->{data}[$i] =~ m#^runq-sz\s+#) {
 			$type = 'load';
 			next;
 		}
 		# New in 8.1.7
-		if ($self->{data}[$i] =~ m#^active\/s\s+#i) {
+		if ($self->{data}[$i] =~ m#^active\/s\s+#) {
 			$type = 'tcp';
 			next;
 		}
