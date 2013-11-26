@@ -39,6 +39,7 @@ $| = 1;
 my $VERBOSE = 0;
 my $SYSSTAT_VERSION = '';
 my %DEVALIAS = ();
+my $ALL_CPU_ONLY = ();
 
 my $CONF_DIR = "/usr/local/sysusage/etc";
 my $CONF_FILE = "$CONF_DIR/sysusage.cfg";
@@ -233,6 +234,7 @@ sub createLabels
 	if ($target =~ /^cpudist/) {
 		$target =~ /^cpudist(\d+)/;
 		my $name = $1;
+		return if (($name ne '') && $ALL_CPU_ONLY);
 		$name = 'All' if ($name eq '');
 		$vlabel  = 'Percentage cpu used';
 		$title   = "CPU $name distribution usage";
@@ -246,6 +248,7 @@ sub createLabels
 	} elsif ($target =~ /^cpuvirt/) {
 		$target =~ /^cpuvirt(\d+)/;
 		my $name = $1;
+		return if (($name ne '') && $ALL_CPU_ONLY);
 		$name = 'All' if ($name eq '');
 		$vlabel  = 'Percentage cpu used';
 		$title   = "CPU $name virtual usage";
@@ -257,6 +260,7 @@ sub createLabels
 	} elsif ($target =~ /^cpu/) {
 		$target =~ /^cpu(\d+)/;
 		my $name = $1;
+		return if (($name ne '') && $ALL_CPU_ONLY);
 		$name = 'All' if ($name eq '');
 		$vlabel  = 'Percentage cpu used';
 		$title   = "CPU $name global usage";
@@ -632,16 +636,19 @@ sub createHTML
 	if ($target =~ /^cpudist/) {
 		$target =~ /^cpudist(\d+)/;
 		my $name = $1;
+		return if (($name ne '') && $ALL_CPU_ONLY);
 		$title   = "CPU $name distribution usage";
 		$section = 'CPU';
 	} elsif ($target =~ /^cpuvirt/) {
 		$target =~ /^cpuvirt(\d+)/;
 		my $name = $1;
+		return if (($name ne '') && $ALL_CPU_ONLY);
 		$title   = "CPU $name virtual usage";
 		$section = 'CPU';
 	} elsif ($target =~ /^cpu/) {
 		$target =~ /^cpu(\d+)/;
 		my $name = $1;
+		return if (($name ne '') && $ALL_CPU_ONLY);
 		$title   = "CPU $name global usage";
 		$section = 'CPU';
 	} elsif ($target =~ /^net_(.*)/) {
@@ -950,6 +957,7 @@ Based on <a target="_new" href="http://pagesperso-orange.fr/sebastien.godard/"><
 sub check_args {
         GetOptions(
                 "c=s"    => \$CONF_FILE,
+                "C!"     => \$ALL_CPU_ONLY,
                 "d!"     => \$VERBOSE,
                 "debug!" => \$VERBOSE,
                 "h!"     => \$HELP,
@@ -981,6 +989,7 @@ sub usage
 Usage: sysusagegraph [-c conf_file] [-h|--help] [-v]
 
 	-c file    : Path to config file. Def: /usr/local/etc/sysusage.cfg
+	-C         : Only build all CPU reports, not per CPU reports.
 	-d|--debug : Verbose output.
 	-h|--help  : Output this message and exit
 	-v         : Show Sysusagegraph version
