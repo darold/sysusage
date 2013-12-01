@@ -133,7 +133,7 @@ foreach my $dir (sort @mdirs) {
 		unlink("$Config{'GENERAL'}{'PID_DIR'}/sysusagegraph.pid");
 		die "Error: can't opendir $Config{'GENERAL'}{'DATA_DIR'}$dir: $!";
 	}
-	my @bases = grep { !/^\./ && !/kernel.txt/ && !/.*\.cnt$/ && -f "$Config{'GENERAL'}{'DATA_DIR'}$dir/$_" } readdir(DIR);
+	my @bases = grep { !/^\./ && !/kernel.txt/ && !/ssh.log/ && !/.*\.cnt$/ && -f "$Config{'GENERAL'}{'DATA_DIR'}$dir/$_" } readdir(DIR);
 	closedir DIR;
 
 	if (!-d "$Config{'GENERAL'}{'DEST_DIR'}$dir") {
