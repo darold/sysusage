@@ -1,4 +1,40 @@
-2012-04-04: v5.3
+2015-01-07: v5.4
+
+This release fixes several issues that was reported during the last two years.
+It adds some new features:
+
+    * A new -C option to generate reports for all CPU only instead of per CPU.
+    * charts are now drawn in separate HTML pages and loaded into an iframe.
+
+Here is the complete list of changes:
+
+	- Use jqplot library by default in crontab example.   
+	- Update copyright year.
+	- Add multi:no into configuration file to default samples plugins.
+	- Fix not working exclusion of mount point from the disk monitoring
+	  type. Thanks to Hofmann Gerhard for the patch.
+	- Fix sysusagegraph and sysusagejqgraph that fail if "ssh.log" file
+	  is left in data repository. Thanks to Frank Crawford fot the patch.
+	- Add -C option to sysusagegraph and sysusagejqgraph to generate
+	  reports for all CPU only and not per CPU.
+	- Fix parseSarOutput() with output of new sar versions.
+	- Fix illegal division by zero on I/O workload reports where read and
+	  writes were zero for the measurement period. Thanks to Frank Crawford
+	  for the patch.
+	- Add support of plugins with "multi" type: when one plugin returns
+	  list of several monitored values at all. Useful for something like
+	  df monitoring -- when it returns all filesystems. Thanks to Anton
+	  Fedorov for the patch.
+	- day/week/month/year charts are now draw in separate HTML pages and
+	  loaded into an iframe to avoid waiting for data load into a huge
+	  single page. Feature requested by Steve Bremer.
+	- Change to only used jqplot *.min.js
+	- Update jqplot library to version 1.0.3r1118
+
+UPGRADE: just override your current installation backward compatibility is
+fully preserved.
+
+2012-04-04: v5.4
 
 	- Extract cursor tooltip from legend with explicit label on all jqplot
 	  graphics.
@@ -17,7 +53,7 @@
 	  Your help to build a better tool is welcome.
 
 UPGRADE: all perl scripts in the bin/ directory have changed so you can just
-overide your current files.
+override your current files.
 
 2012-03-11: v5.2
 
