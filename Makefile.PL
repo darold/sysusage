@@ -186,6 +186,7 @@ sensors:
 title:WWW response time plugin
 menu:Web servers
 enable:no
+multi:no
 program:$PLUGINDIR/plugin-sample1.pl
 minThreshold:0
 maxThreshold:10
@@ -203,6 +204,7 @@ remote:yes
 title:ICMP servers response time
 menu:Network latency
 enable:no
+multi:no
 program:$PLUGINDIR/plugin-sample2.pl
 minThreshold:
 maxThreshold:
