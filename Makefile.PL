@@ -296,11 +296,11 @@ echo "
 Now you can run sysusage into you crontab as follow:
 
 	*/1 * * * * $BINDIR/sysusage > /dev/null 2>&1
-	*/5 * * * * /usr/bin/nice -19 $BINDIR/sysusagegraph > /dev/null 2>&1
-
-If you want to use the jqplot javascript graph library use this instead:
-
 	*/5 * * * * /usr/bin/nice -19 $BINDIR/sysusagejqgraph > /dev/null 2>&1
+
+If you don't want to use the jqplot javascript graph library use this instead:
+
+	*/5 * * * * /usr/bin/nice -19 $BINDIR/sysusagegraph > /dev/null 2>&1
 
 If you need to monitor your host under the minute, you can use DEAMON mode.
 See $DOCDIR/README file.
