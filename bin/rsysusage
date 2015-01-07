@@ -487,9 +487,9 @@ sub mon_disk_usage
 		my ($sdevice, $ssize, $sused, $sfree, $spercent, $sdir) = split(/\s+/, $retsize[$i]);
 		my ($idevice, $isize, $iused, $ifree, $ipercent, $idir) = split(/\s+/, $retnode[$i]);
 		# Get exclude mount point from configuration
-		if ($#{$CMD{$type}} == 1) {
+		if ($#{$CMD{$type}} == 3) {
 			my @exclude = split(m#[;]+#, $CMD{$type}[1]);
-			if (grep($sdir =~ m#$_#, @exclude)) {
+			if (grep($sdir =~ m#^$_$#, @exclude)) {
 	print "DISK: $sdir => Exclusion match\n" if ($Config{'GENERAL'}{'DEBUG'});
 				next;
 			}
