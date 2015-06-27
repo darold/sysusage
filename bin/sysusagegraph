@@ -78,6 +78,7 @@ my $lkupcolor   = '#B61010';
 my %Config      = ();
 my %PLUGIN	= ();
 my %REMOTEHOST  = ();
+my %GROUPHOST   = ();
 my %PROCESS	= ();
 my %TPROCESS	= ();
 my $HTML_HEADER = '';
@@ -109,7 +110,6 @@ unless(opendir(DIR, "$Config{'GENERAL'}{'DATA_DIR'}")) {
 }
 my @mdirs = grep { !/^\./ && -d "$Config{'GENERAL'}{'DATA_DIR'}/$_" } readdir(DIR);
 closedir DIR;
-
 if ($#mdirs == -1) {
 	unshift(@mdirs, '');
 } else {
@@ -208,14 +208,45 @@ if (!$Config{'GENERAL'}{'DEBUG'}) {
 		}
 		my $title = "SysUsage v$VERSION";
 		print HFILE &mainHeader($title);
-		foreach my $dir (sort @mdirs) {
-			$dir =~ s/^\///;
-			my ($date, $kernel, $status) = &getStartInfos($dir);
-			$status = 'DISABLED' if (lc($REMOTEHOST{$dir}{'enable'}) eq 'no');
-			$status = 'ACTIVE' if (!$status);
-			my $href = "$dir/index.html";
-			$href = "#" if (!-d "$Config{'GENERAL'}{'DEST_DIR'}/$dir/");
-			print HFILE "<tr><th class=\"thhost\"><a class=\"mainfooter\" href=\"$href\" target=\"_new\">$dir</a></th><td>$date</td><td>$kernel</td><td>$status</td></tr>\n";
+		if (scalar keys %GROUPHOST > 0) {
+			my @done = ();
+			foreach my $grp (sort keys %GROUPHOST) {
+				print HFILE "<tr><th class=\"thhost\" colspan=\"4\">$grp</th></tr>\n";
+				foreach my $dir (sort @mdirs) {
+					$dir =~ s/^\///;
+					next if (!grep(/^$dir$/, @{$GROUPHOST{$grp}}));
+					push(@done, $dir);
+					my ($date, $kernel, $status) = &getStartInfos($dir);
+					$status = 'DISABLED' if (lc($REMOTEHOST{$dir}{'enable'}) eq 'no');
+					$status = 'ACTIVE' if (!$status);
+					my $href = "$dir/index.html";
+					$href = "#" if (!-d "$Config{'GENERAL'}{'DEST_DIR'}/$dir/");
+					print HFILE "<tr><th class=\"thhost\"><a class=\"mainfooter\" href=\"$href\" target=\"_new\">$dir</a></th><td>$date</td><td>$kernel</td><td>$status</td></tr>\n";
+				}
+			}
+			if ($#done != $#mdirs) {
+				print HFILE "<tr><th class=\"thhost\" colspan=\"4\">Others</th></tr>\n";
+				foreach my $dir (sort @mdirs) {
+					$dir =~ s/^\///;
+					next if (grep(/^$dir$/, @done));
+					my ($date, $kernel, $status) = &getStartInfos($dir);
+					$status = 'DISABLED' if (lc($REMOTEHOST{$dir}{'enable'}) eq 'no');
+					$status = 'ACTIVE' if (!$status);
+					my $href = "$dir/index.html";
+					$href = "#" if (!-d "$Config{'GENERAL'}{'DEST_DIR'}/$dir/");
+					print HFILE "<tr><th class=\"thhost\"><a class=\"mainfooter\" href=\"$href\" target=\"_new\">$dir</a></th><td>$date</td><td>$kernel</td><td>$status</td></tr>\n";
+				}
+			}
+		} else {
+			foreach my $dir (sort @mdirs) {
+				$dir =~ s/^\///;
+				my ($date, $kernel, $status) = &getStartInfos($dir);
+				$status = 'DISABLED' if (lc($REMOTEHOST{$dir}{'enable'}) eq 'no');
+				$status = 'ACTIVE' if (!$status);
+				my $href = "$dir/index.html";
+				$href = "#" if (!-d "$Config{'GENERAL'}{'DEST_DIR'}/$dir/");
+				print HFILE "<tr><th class=\"thhost\"><a class=\"mainfooter\" href=\"$href\" target=\"_new\">$dir</a></th><td>$date</td><td>$kernel</td><td>$status</td></tr>\n";
+			}
 		}
 		print HFILE &mainFooter();
 		print HFILE "</table>\n</div>\n</div>\n</body>\n</html>\n";
@@ -1223,6 +1254,9 @@ sub read_config
 		} elsif ($l =~ /\[[\s\t]*REMOTE[\t\s]*([^\s\t]*)[\s\t]*\]/i) {
 			$part = 'REMOTE ' . $1;
 			next;
+		} elsif ($l =~ /\[[\s\t]*GROUP[\t\s]*([^\]]*)[\s\t]*\]/i) {
+			$part = 'GROUP ' . $1;
+			next;
 		}
 		if ($part eq 'MONITOR') {
 			# type:ThresholdMax:ThresholdMin
@@ -1281,6 +1315,8 @@ sub read_config
 			$var =~ s/[^a-z0-9\_]+//i;
 			$name =~ s/[^a-z0-9\_\-\.]+//i;
 			$REMOTEHOST{"\L$name\E"}{"\L$var\E"} = $val;
+		} elsif ($part =~ /GROUP (.*)/) {
+			push(@{$GROUPHOST{$1}}, lc($l));
 		} else {
 			if (!$part) {
 				die "ERROR: Invalid configuration file syntax, please read documentation\n";

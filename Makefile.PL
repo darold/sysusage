@@ -222,13 +222,17 @@ remote:yes
 # If this is not an install on a remote host
 if (!$REMOTE) {
 	print OUTCFG qq{
-[REMOTE hostname]
+[REMOTE hostname1]
 enable:no
 ssh_user:monitor
 ssh_identity:/home/monitor/.ssh/id_rsa
 #ssh_options:
 #ssh_command:
 remote_sysusage:$BINDIR/rsysusage
+
+#[GROUP Web Servers]
+#hostname1
+#hostname2
 
 };
 }

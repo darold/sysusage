@@ -172,7 +172,7 @@ The configuration file is /usr/local/sysusage/etc/sysusage.cfg and
 all RRD Bekerley DB databases from rrdtool will be saved under
 /usr/local/sysusage/rrdfiles.
 
-If you plan to run sysusage on different servers from a cntral place you
+If you plan to run sysusage on different servers from a central place you
 may just want to install the rsysusage Perl script on remote hosts. So
 proceed as follow:
 
@@ -427,6 +427,10 @@ Full sample of configuration file:
 	#ssh_options: -o ConnectTimeout=5 -o PreferredAuthentications=hostbased,publickey
 	#ssh_command:
 	remote_sysusage:/usr/local/sysusage/bin/rsysusage
+
+	#[GROUP Web Servers]
+	#hostname1
+	#hostname2
 
 =head2 Section GENERAL
 
@@ -935,6 +939,27 @@ certificat between the central host and all remote hosts, most of the time you
 just have to set the ssh_user directive to have it working. Use remote_sysusage
 directive if sysusage perl script is not installed on the same place than the
 central server.
+
+=head2 Section GROUP
+
+This section allow you to groups remote host report under a common groupname
+in the index page. Remote hosts will be ordered following their parent groups.
+The name of the group can be any string and the values in the section must be
+a list of remote servers defined in the REMOTE sections.
+
+For example if you are monitoring a cluster of web and database servers you can
+use the following declaration:
+
+	[GROUP Web Servers]
+	webhost1
+	webhost2
+	webhost3
+
+	[GROUP Database Servers]
+	dbhost1
+	dbhost2
+
+Of course webhostN and dbhostN hosts must be declared in the remote section.
 
 =over 4
 
