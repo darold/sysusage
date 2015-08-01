@@ -643,6 +643,16 @@ sub createLabels
 		$section = $1;
 		$submenu = $2;
 		$title   = $3.$4;
+	} elsif ($target =~ /^temp/) {
+		$target =~ /^temp_(.*)/;
+		my $device = $1;
+		$vlabel  = 'Temperature degrees C';
+		$title   = "Device $device";
+		$legend_A = '% temperature';
+		$legend1  = 'float';
+		$legend_B = 'degrees C';
+		$legend2  = 'float';
+		$section = "Device Temperature";
 	}
 	push(@LINKS, { ('section' => $section, 'title' => $title, 'url' => "$target.html", 'plugmenu' => "$submenu") } );
 
@@ -835,6 +845,11 @@ sub createHTML
 		$device =~ s#_# #g;
 		$device .= "erature" if ($device =~ /\btemp\b/i);
 		$title   = "$device";
+		$section = 'Device';
+	} elsif ($target =~ /^temp/) {
+		$target =~ /^temp_(.*)/;
+		my $device = $1;
+		$title   = "Device $device temperature";
 		$section = 'Device';
 	} elsif ($target eq 'tcpseg') {
 		$title   = 'TCP segments usage';
@@ -1177,6 +1192,10 @@ sub read_config
 				$thres_min = $other;
 			} elsif ($type eq 'sensors') {
 				$type = "sensors_$thres_max";
+				$thres_max = $thres_min;
+				$thres_min = $other;
+			} elsif ($type eq 'temp') {
+				$type = "temp_$thres_max";
 				$thres_max = $thres_min;
 				$thres_min = $other;
 			} elsif ($type eq 'mem') {
@@ -1774,6 +1793,18 @@ Command: df -k /dev/shm
 	df displays the amount of disk space used on the /dev/shm file system.
 
 	-k     like --block-size=1K
+
+};
+	} elsif ($target =~ /^temp_(.*)/) {
+		$help .= qq{
+Command: sar -m TEMP
+
+      degC
+	     Device temperature expressed in degrees Celsius.
+
+      %temp
+	     Relative  device  temperature. A value of 100% means that
+	     temperature has reached its high limit (temp_max).
 
 };
 	}

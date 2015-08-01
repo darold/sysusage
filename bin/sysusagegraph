@@ -682,6 +682,16 @@ sub createGraphic
 		$section = $1;
 		$submenu = $2;
 		$title   = $3.$4;
+	} elsif ($target =~ /^temp/) {
+		$target =~ /^temp_(.*)/;
+		my $device = $1;
+		$vlabel  = 'Temperature degrees C';
+		$title   = "Device $device";
+		$legend_A = '% temperature';
+		$legend1  = 'float';
+		$legend_B = 'degrees C';
+		$legend2  = 'float';
+		$section = "Device Temperature";
 	}
 	push(@LINKS, { ('section' => $section, 'title' => $title, 'url' => "$target.html", 'plugmenu' => "$submenu") } );
 
@@ -998,6 +1008,11 @@ sub createHTML
 		$device .= "erature" if ($device =~ /\btemp\b/i);
 		$title   = "$device";
 		$section = 'Device';
+	} elsif ($target =~ /^temp/) {
+		$target =~ /^temp_(.*)/;
+		my $device = $1;
+		$title   = "Device $device temperature";
+		$section = 'Device';
 	} elsif ($target eq 'tcpseg') {
 		$title   = 'TCP segments usage';
 		$section = 'Network';
@@ -1292,6 +1307,10 @@ sub read_config
 				$thres_min = $other;
 			} elsif ($type eq 'sensors') {
 				$type = "sensors_$thres_max";
+				$thres_max = $thres_min;
+				$thres_min = $other;
+			} elsif ($type eq 'temp') {
+				$type = "temp_$thres_max";
 				$thres_max = $thres_min;
 				$thres_min = $other;
 			} elsif ($type eq 'mem') {
@@ -1799,6 +1818,126 @@ Command: sar -B
 	     ory demands.
 
 };
+        } elsif ($target =~ /load/) {
+
+                $help .= qq{
+Command: sar -p
+
+      ldavg-1
+             System load average for the last minute.  The load average
+             is calculated as the average number of runnable  or  run‐
+             ning tasks (R state), and the number of tasks in uninter-
+             ruptible sleep (D state) over the specified interval.
+
+      ldavg-5
+             System load average for the past 5 minutes.
+
+      ldavg-15
+             System load average for the past 15 minutes.
+
+};
+        } elsif ($target =~ /pcrea/) {
+
+                $help .= qq{
+Command: sar -p
+
+      runq-sz
+             Run queue length (number of tasks waiting for run time).
+
+};
+        } elsif ($target =~ /^disk/) {
+
+                $help .= qq{
+Command: df -lkP -x tmpfs 
+
+        df displays the amount of disk space available on all currently
+        mounted file systems
+
+        -k     like --block-size=1K
+
+        -l, --local
+              limit listing to local file systems
+
+        -P, --portability
+              use the POSIX output format
+
+        -x, --exclude-type=TYPE
+              limit listing to file systems not of type TYPE
+
+};
+        } elsif ($target =~ /^err_(.*)/) {
+                $help .= qq{
+Command: sar -n EDEV
+
+      rxerr/s
+             Total number of bad packets received per second.
+
+      txerr/s
+             Total number of errors that happened per second while transmitting packets.
+
+};
+        } elsif ($target =~ /^coll_(.*)/) {
+                $help .= qq{
+Command: sar -n EDEV
+
+      coll/s
+             Number of collisions that happened per second while transmitting packets.
+
+};
+        } elsif ($target =~ /^drop_(.*)/) {
+                $help .= qq{
+Command: sar -n EDEV
+
+      rxdrop/s
+             Number of received packets dropped per second because of a lack of space
+             in linux buffers.
+
+      txdrop/s
+             Number of transmitted packets dropped per second because of a lack of
+             space in linux buffers.
+
+};
+        } elsif ($target =~ /^net_(.*)/) {
+                $help .= qq{
+Command: sar -n DEV
+
+      rxkB/s
+             Total number of kilobytes received per second.
+
+      txkB/s
+             Total number of kilobytes transmitted per second.
+
+};
+        } elsif ($target =~ /^intr/) {
+                $help .= qq{
+Command: sar -I SUM
+
+        intr/s
+             Report statistics for the total number of interrupts received per second.
+
+};
+        } elsif ($target =~ /^share/) {
+                $help .= qq{
+Command: df -k /dev/shm
+
+        df displays the amount of disk space used on the /dev/shm file system.
+
+        -k     like --block-size=1K
+
+};
+	} elsif ($target =~ /^temp_(.*)/) {
+		$help .= qq{
+Command: sar -m TEMP
+
+      degC
+	     Device temperature expressed in degrees Celsius.
+
+      %temp
+	     Relative  device  temperature. A value of 100% means that
+	     temperature has reached its high limit (temp_max).
+
+};
+
 	}
 
 	return "<pre>$help</pre>\n<hr>\n" if ($help);

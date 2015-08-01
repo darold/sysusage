@@ -177,6 +177,7 @@ queue:
 dev:
 hddtemp:
 sensors:
+temp:
 
 # This part enable the use of custom plugins. You can call any program/script
 # provide that it return 3 numbers separated by a space character. See plugins/

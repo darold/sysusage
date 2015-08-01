@@ -148,6 +148,11 @@ sub parseSarOutput
 			$headers[0] = 'number';
 			next;
 		}
+		if ($self->{data}[$i] =~ m#^TEMP\s+#) {
+			$type = 'temp';
+			$headers[0] = 'number';
+			next;
+		}
 		if ($self->{data}[$i] =~ m#^INTR\s+#) {
 			$type = 'intr';
 			$headers[0] = 'name';
@@ -184,7 +189,7 @@ sub parseSarOutput
 			$headers[0] = 'name';
 			next;
 		}
-		if ($self->{data}[$i] =~ m#^DEV\s+#) {
+		if ($self->{data}[$i] =~ m#^DEV\s+.*rd_sec#) {
 			$type = 'dev';
 			$headers[0] = 'name';
 			next;

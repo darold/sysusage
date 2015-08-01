@@ -206,6 +206,8 @@ sub do_monitor
 			&mon_sensors($sar, $host, $t, $1) if ($1);
 		} elsif ($t eq 'tcp') {
 			&mon_tcp($sar, $host, $t);
+		} elsif ($t =~ /^temp_(.*)/) {
+			&mon_temperature($sar, $host, $t, $1);
 		} else {
 			print "ERROR: Unknown statistic type '$t' for $host.\n";
 		}
@@ -957,6 +959,30 @@ print "TCP: Active => $info{'active'}/s, Passive => $info{'passive'}/s, Received
 }
 
 ####
+# Function used to return Temperature usage
+####
+sub mon_temperature
+{
+	my ($sar, $host, $type, $pattern) = @_;
+
+	my %tempinfo = $sar->getReportType('temp');
+	foreach my $name (sort {$a <=> $b} keys %tempinfo) {
+		next if ($name !~ /^temp_$pattern/);
+		my $target = 'temp_' . $name;
+print "TEMP: $name => degC: $tempinfo{$name}{'degC'}, %temp: $tempinfo{$name}{'%temp'}, DEVICE: $tempinfo{$name}{'DEVICE'}\n" if ($Config{'GENERAL'}{'DEBUG'});
+		if (exists $CMD{"$target"}) {
+			if (!$tempinfo{$name}{'degC'}) {
+				&insertIntDataNull($host, $target);
+			} else {
+				&insertIntData($host, $target, $tempinfo{$name}{'%temp'}, $tempinfo{$name}{'degC'});
+			}
+			# Just warn on total of CPU usage (all temps)
+			&send_warning($host, $target, 'temp', "Temperature", $tempinfo{$name}{'%temp'});
+		}
+	}
+}
+
+####
 # Function used to monitor user customized command
 ####
 sub mon_customized
@@ -1292,6 +1318,10 @@ sub read_config
 				$thres_min = $other[0];
 			} elsif ($type eq 'sensors') {
 				$type = "sensors_$thres_max";
+				$thres_max = $thres_min;
+				$thres_min = $other[0];
+			} elsif ($type eq 'temp') {
+				$type = "temp_$thres_max";
 				$thres_max = $thres_min;
 				$thres_min = $other[0];
 			} elsif ($type eq 'mem') {
