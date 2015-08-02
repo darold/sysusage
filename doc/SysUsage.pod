@@ -18,11 +18,11 @@ resources management.
 SysUsage can be run periodically from 10 seconds cycle in daemon mode
 to 1 minute or more using crond.
 
-Since release 5.0 SysUsage can be run from a central server to call a ssh
-remote execution of the sysusage perl script so that collected data will
-be stored in this central place. You also will have just one place where
-rrdtool and related Perl modules need to be installed as well as just
-one place where sysusagegraph or sysusagejqgraph need to be executed.
+SysUsage can be run from a central server to call a ssh remote execution of
+the sysusage perl script so that collected data will be stored in this central
+place. You also will have just one place where rrdtool and related Perl
+modules need to be installed as well as just one place where sysusagegraph
+or sysusagejqgraph need to be executed.
 
 =head2 CPUs
 
@@ -36,6 +36,7 @@ one place where sysusagegraph or sysusagejqgraph need to be executed.
 	- Swap usage (with and without cache).
 	- Amount of memory need for current workload.
 	- Posix share memory.
+	- HUgepages utilisation
 
 =head2 I/O
 
@@ -63,7 +64,7 @@ one place where sysusagegraph or sysusagejqgraph need to be executed.
 	- I/O workload on device.	
 	- Times for I/O requests issued to device.
 	- Hard drive temperature if your hardward support it (with hddtemp).
-	- MotherBoard/CPU/Remote temperature reported by sensors.
+	- MotherBoard/CPU/Remote temperature reported by sensors or sar.
 	- Fan RPM reported by sensors.
 
 =head2 Files
@@ -86,14 +87,14 @@ outside max/min threshold values for all type of monitoring.
 
 =head2 Plugins
 
-Since version 3.0 you can create your own monitoring plugins. Any script or
+With SysUsage you can create your own monitoring plugins. Any script or
 program can be embeded in SysUsage provided that it return up to 3 numeric
 values. The graphic title and labels are defined in the configuration file.
 
 =head2 Remote call
 
-Since release 5.0 SysUsage can be installed onto a central server that will
-be used to store statistics data by periodically calling sysusage on remote
+SysUsage can be installed and run onto a central server that will be
+used to store statistics data by periodically calling sysusage on remote
 host using SSH. This central place will also be in charge to renderer HTML
 plages and graphics for all hosts. This will allow to simplify the SysUsage
 installation on remote host that will only require sysstat and rsysusage.
@@ -125,9 +126,9 @@ It can be found on CPAN (http://search.cpan.org)
 
 =head2 Perl modules
 
-Since release 5.0 sysusage can be run in a central place to collect remote
-sysusage statistics using ssh. The remote calls are proceed simultaneously
-using fork and the Proc::Queue Perl module.
+Sysusage can be run in a central place to collect remote sysusage statistics
+using ssh. The remote calls are proceed simultaneously using fork with the
+Proc::Queue Perl module.
 
 If you're plan tu use sysusagegraph instead of sysusagejqgrpah you will also
 need the GD and GD::Graph3D Perl modules.
@@ -382,8 +383,11 @@ Full sample of configuration file:
 	[MONITOR]
 	load:threshold_max_value
 	cpu:threshold_max_value
+	cswch:threshold_max_value
+	intr:threshold_max_value
 	mem:threshold_max_value
 	swap:threshold_max_value
+	work:threshold_max_value
 	share:threshold_max_value
 	sock:threshold_max_value
 	socktw:threshold_max_value
@@ -393,6 +397,7 @@ Full sample of configuration file:
 	pcrea:threshold_max_value
 	pswap:threshold_max_value
 	net:threshold_max_value
+	tcp:threshold_max_value
 	err:threshold_max_value
 	disk:threshold_max_value
 	proc:proc_name:threshold_max_value:threshold_min_value
@@ -403,6 +408,9 @@ Full sample of configuration file:
 	dev:device(alias):rpm_speed:raid_type:nb_disk
 	work:threshold_max_value
 	sensors:pattern:threshold_max_value
+	temp:device:threshold_max_value
+	fan:device:threshold_max_value
+	huge:threshold_max_value
 
 	[PLUGIN testplug]
 	title:Sysage Test plugin
@@ -642,7 +650,7 @@ or
 =item type
 
 Type of system information you may want to monitor. It can takes
-16 differents values:
+around 30 differents values:
 
 	load   => monitor load average
 	cpu    => monitor each cpu(s) user/nice/system usage
@@ -661,11 +669,25 @@ Type of system information you may want to monitor. It can takes
 	page   => monitor I/O page usage
 	pswap  => monitor I/O page swap usage
 	pcrea  => monitor number of process created per second
+	proc   => monitor number of running process
+	tproc  => monitor number of running thread
 	file   => monitor number of open file
+	queue  => monitor number of files in queue
 	net    => monitor I/O network bytes on all network interfaces
 	err    => monitor bad packet, drop and collision on interfaces
-	disk   => monitor disk space usage
 	tcp    => monitor number of tcp connection and segment
+	disk   => monitor disk space usage
+	dev    => monitor percentage of CPU time per device
+               => monitor average request queue length
+	       => monitor I/O sectors read and write to device
+               => monitor time spent in queue (await)
+               => monitor time spent in servicing (svctm)
+	sensors=> monitor fan and device temperature using sensors command
+	hddtemp=> monitor disk drive temperature
+	temp   => monitor device temperature using sar
+	fan    => monitor fan rotation using sar
+	huge   => monitor size of hugepages utilisation
+
 
 Note: the 'cpu' target monitoring type will report all statictics per cpu. This
 can represent a lot of informations if you several cpu. To limit statistics to
@@ -761,12 +783,9 @@ or
 Type of system information you may want to monitor. It can takes
 these differents values:
 
-	proc    => monitor number of running process
-	tproc   => monitor number of running thread
-	queue   => monitor number of files in a directory
-	dev     => monitor CPU usage per device (ex: sda)
-	hddtemp => monitor hard drive temperature
-	sensors => monitor device (cpu temp, fan speed, etc.)
+	load, cpu, cswch, intr, mem, swap, work, share, sock, socktw, io, file,
+	page, pcrea, pswap, net, tcp, err, disk, proc, tproc, queue, hddtemp,
+	dev, work, sensors, temp, fan, huge
 
 =item target
 
@@ -815,6 +834,10 @@ percentage of CPU used for this device before sending an alarm.
 If type is 'sensors' this represent the pattern to match to obtain temperature
 or fan speed information in the sensors program output. See chapter SENSORS to
 have more information.
+
+If type is 'temp' or 'fan' this represent the device number reported by sar
+to obtain temperature or fan speed information. To know what device number
+must be used, see result of command: sar -m ALL 1 1
 
 =item threshold_max
 
@@ -1073,9 +1096,9 @@ Sensors output on my server:
 	fan2:       10671 RPM  (min = 8095 RPM)
 	fan3:          0 RPM  (min =    0 RPM)
 	fan4:          0 RPM  (min =    0 RPM)
-	CPU Temp:    +69.5°C  (low  =  +2.0°C, high = +91.0°C)
-	Board Temp:  +32.5°C  (low  =  +2.0°C, high = +83.0°C)
-	Remote Temp: +31.2°C  (low  =  +2.0°C, high = +58.0°C)
+	CPU Temp:    +69.5 C  (low  =  +2.0 C, high = +91.0 C)
+	Board Temp:  +32.5 C  (low  =  +2.0 C, high = +83.0 C)
+	Remote Temp: +31.2 C  (low  =  +2.0 C, high = +58.0 C)
 	cpu0_vid:   +1.338 V
 
 	adt7463-i2c-0-2e
@@ -1089,9 +1112,9 @@ Sensors output on my server:
 	fan2:          0 RPM  (min =    0 RPM)
 	fan3:       9642 RPM  (min = 8095 RPM)
 	fan4:          0 RPM  (min =    0 RPM)
-	CPU Temp:    +57.2°C  (low  =  +2.0°C, high = +91.0°C)
-	Board Temp:  +35.2°C  (low  =  +2.0°C, high = +91.0°C)
-	Remote Temp: +35.8°C  (low  =  +2.0°C, high = +58.0°C)
+	CPU Temp:    +57.2 C  (low  =  +2.0 C, high = +91.0 C)
+	Board Temp:  +35.2 C  (low  =  +2.0 C, high = +91.0 C)
+	Remote Temp: +35.8 C  (low  =  +2.0 C, high = +58.0 C)
 	cpu0_vid:   +1.338 V
 
 Following the sensors kernel module load you could have more or less output
@@ -1122,11 +1145,11 @@ sensors output is:
 
 	coretemp-isa-0000
 	Adapter: ISA adapter
-	Core 0:      +53.0°C  (high = +78.0°C, crit = +100.0°C)
+	Core 0:      +53.0 C  (high = +78.0 C, crit = +100.0 C)
 
 	coretemp-isa-0001
 	Adapter: ISA adapter
-	Core 1:      +50.0°C  (high = +78.0°C, crit = +100.0°C)
+	Core 1:      +50.0 C  (high = +78.0 C, crit = +100.0 C)
 
 To monitor CPU temprature, I just add this line in my sysusage.cfg:
 
@@ -1134,22 +1157,19 @@ To monitor CPU temprature, I just add this line in my sysusage.cfg:
 
 This will generate a graph with 2 graphed data for Core 0 and Core 1.
 
+Now that sysstat sar natively reports deviceis temperature and fan speed
+you don't need sensors anymore. Type 'temp' can be used instead and type
+'fan' for the fan speed. The target of these types is the device number,
+See sar -m TEMP or sar -m FAN to see which device number to monitor.
 
-=head1 BUGS
+=head1 BUGS / FEATURE REQUEST
 
-Please report any bugs to <gilles _|_At_|_ darold _|_DoT_|_ net>.
-
-
-=head1 FEATURE REQUEST
-
-If you think something is missing to have a better view of your system healt,
-please send to <gilles _|_At_|_ darold _|_DoT_|_ net> your remarqs and feature
-request.
-
+Please report any bugs, remarqs and feature request using the Github interface
+at https://github.com/darold/sysusage/ or send a mail to the author.
 
 =head1 LICENSE
 
-Copyright (C) 2003-2011 Gilles Darold
+Copyright (C) 2003-2015 Gilles Darold
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
