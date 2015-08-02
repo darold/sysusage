@@ -30,7 +30,9 @@ FEATURES
             - Swap usage (with and without cache).
             - Amount of memory need for current workload.
             - Posix share memory.
-            - HUgepages utilisation
+            - Hugepages utilisation
+            - Active versus inactive memory
+            - Dirty memeory that need to be written to disk
 
   I/O
             - Context switches per second.
@@ -357,6 +359,7 @@ CONFIGURATION
             cswch:threshold_max_value
             intr:threshold_max_value
             mem:threshold_max_value
+            dirty:threshold_max_value
             swap:threshold_max_value
             work:threshold_max_value
             share:threshold_max_value
@@ -597,6 +600,7 @@ CONFIGURATION
                 cswch  => monitor context switches usage
                 intr   => monitor number of interrupt per second
                 mem    => monitor memory usage
+                dirty  => monitor memory active/inactive/dirty memory
                 share  => monitore Posix share memory usage (/dev/shm)
                 swap   => monitor swap usage
                 work   => monitor amount of memory needed for current workload
@@ -717,7 +721,7 @@ CONFIGURATION
 
                 load, cpu, cswch, intr, mem, swap, work, share, sock, socktw, io, file,
                 page, pcrea, pswap, net, tcp, err, disk, proc, tproc, queue, hddtemp,
-                dev, work, sensors, temp, fan, huge, blocked
+                dev, work, sensors, temp, fan, huge, blocked, dirty
 
     target
         If type is 'proc' or 'tproc' target represent the name of the
