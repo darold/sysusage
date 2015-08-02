@@ -367,6 +367,8 @@ sub do_monitor
 			&mon_tcp($sar, $host, $t);
 		} elsif ($t =~ /^temp_(.*)/) {
 			&mon_temperature($sar, $host, $t, $1);
+		} elsif ($t eq 'huge') {
+			&mon_huge($sar, $host, $t);
 		} else {
 			print "ERROR: Unknown statistic type '$t' for $host.\n";
 		}
@@ -1140,6 +1142,29 @@ print "TEMP: $name => degC: $tempinfo{$name}{'degC'}, %temp: $tempinfo{$name}{'%
 		}
 	}
 }
+
+####
+# Function used to return the huge pages usage
+####
+sub mon_huge
+{
+	my ($sar, $host, $type) = @_;
+
+	my %info = $sar->getReportType('huge');
+	# No file in use percentage, so compute if
+	$info{'kbhugfree'} *= 1024;
+	$info{'kbhugused'} *= 1024;
+print "HUGE: kbhugfree => $info{'kbhugfree'}, kbhugused => $info{'kbhugused'}, %hugused => $info{'%hugused'}\n" if ($Config{'GENERAL'}{'DEBUG'});
+	if (exists $CMD{'huge'}) {
+		if (!$info{'huge'}) {
+			&insertIntDataNull($host, $type);
+		} else {
+			&insertIntData($host, $type, $info{'kbhugfree'}, $info{'kbhugused'}, $info{'%hugused'});
+		}
+		&send_warning($host, $type, $type, "Huge pages usage", $info{'%hugused'});
+	}
+}
+
 
 ####
 # Function used to monitor user customized command

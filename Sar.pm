@@ -166,6 +166,10 @@ sub parseSarOutput
 			$type = 'pswap';
 			next;
 		}
+		if ($self->{data}[$i] =~ m#^kbhugfree\s+#) {
+			$type = 'huge';
+			next;
+		}
 		if (( $self->{data}[$i] =~ m#^tps\s+#) && ($self->{data} !~ m#DEV\s+#) ) {
 			$type = 'io';
 			next;

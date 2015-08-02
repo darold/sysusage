@@ -653,6 +653,14 @@ sub createLabels
 		$legend_B = 'degrees C';
 		$legend2  = 'float';
 		$section = "Device Temperature";
+	} elsif ($target eq 'huge') {
+		$vlabel  = 'Bytes used';
+		$title   = 'Huge pages usage';
+		$legend_A = 'huge pages free';
+		$legend1 = 'long';
+		$legend_B = 'huge pages used';
+		$legend2 = 'long';
+		$section = "Memory";
 	}
 	push(@LINKS, { ('section' => $section, 'title' => $title, 'url' => "$target.html", 'plugmenu' => "$submenu") } );
 
@@ -865,6 +873,9 @@ sub createHTML
 		$title = $PLUGIN{$1}{title};
 		$section = $1;
 		$submenu = $2;
+	} elsif ($target eq 'huge') {
+		$title   = 'Huge pages usage';
+		$section = 'Memory';
 	}
 
 	unless(open(HFILE, ">$Config{'GENERAL'}{'DEST_DIR'}$dir/$target.html")) {
@@ -1799,12 +1810,28 @@ Command: df -k /dev/shm
 		$help .= qq{
 Command: sar -m TEMP
 
-      degC
-	     Device temperature expressed in degrees Celsius.
+	degC
+		Device temperature expressed in degrees Celsius.
 
-      %temp
-	     Relative  device  temperature. A value of 100% means that
-	     temperature has reached its high limit (temp_max).
+	%temp
+		Relative  device  temperature. A value of 100% means that
+		temperature has reached its high limit (temp_max).
+
+};
+	} elsif ($target =~ /^huge/) {
+		$help .= qq{
+Command: sar -H
+
+	Report hugepages utilization statistics.  The following values are displayed:
+
+	kbhugfree
+		Amount of hugepages memory in kilobytes that is not yet allocated.
+
+	kbhugused
+		Amount of hugepages memory in kilobytes that has been allocated.
+
+	%hugused
+		Percentage of total hugepages memory that has been allocated.
 
 };
 	}
