@@ -216,11 +216,12 @@ or sysusagejqgraph need to be executed.
 .Ve
 .SS "Process"
 .IX Subsection "Process"
-.Vb 4
+.Vb 5
 \&        \- Load average.
 \&        \- Process created per second.
 \&        \- Number of running process (ex: sendmail, httpd, oracle, etc.).
 \&        \- Number of running thread (ex: mysqld, amarok, etc.).
+\&        \- Number of task blocked waiting for I/O
 .Ve
 .SS "Notification"
 .IX Subsection "Notification"
@@ -531,6 +532,7 @@ Full sample of configuration file:
 \&
 \&        [MONITOR]
 \&        load:threshold_max_value
+\&        blocked:threshold_max_value
 \&        cpu:threshold_max_value
 \&        cswch:threshold_max_value
 \&        intr:threshold_max_value
@@ -766,6 +768,7 @@ around 30 differents values:
 .Sp
 .Vb 10
 \&        load   => monitor load average
+\&        blocked=> monitor task blocked waiting for I/O
 \&        cpu    => monitor each cpu(s) user/nice/system usage
 \&               => monitor each cpu(s) total/iowait usage
 \&               => monitor each cpu(s) steal/guest usage
@@ -908,7 +911,7 @@ these differents values:
 .Vb 3
 \&        load, cpu, cswch, intr, mem, swap, work, share, sock, socktw, io, file,
 \&        page, pcrea, pswap, net, tcp, err, disk, proc, tproc, queue, hddtemp,
-\&        dev, work, sensors, temp, fan, huge
+\&        dev, work, sensors, temp, fan, huge, blocked
 .Ve
 .IP "target" 4
 .IX Item "target"

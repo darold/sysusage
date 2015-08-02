@@ -68,6 +68,7 @@ FEATURES
             - Process created per second.
             - Number of running process (ex: sendmail, httpd, oracle, etc.).
             - Number of running thread (ex: mysqld, amarok, etc.).
+            - Number of task blocked waiting for I/O
 
   Notification
     You can have mail or Nagios notification when some monitored values are
@@ -351,6 +352,7 @@ CONFIGURATION
 
             [MONITOR]
             load:threshold_max_value
+            blocked:threshold_max_value
             cpu:threshold_max_value
             cswch:threshold_max_value
             intr:threshold_max_value
@@ -587,6 +589,7 @@ CONFIGURATION
         around 30 differents values:
 
                 load   => monitor load average
+                blocked=> monitor task blocked waiting for I/O
                 cpu    => monitor each cpu(s) user/nice/system usage
                        => monitor each cpu(s) total/iowait usage
                        => monitor each cpu(s) steal/guest usage
@@ -714,7 +717,7 @@ CONFIGURATION
 
                 load, cpu, cswch, intr, mem, swap, work, share, sock, socktw, io, file,
                 page, pcrea, pswap, net, tcp, err, disk, proc, tproc, queue, hddtemp,
-                dev, work, sensors, temp, fan, huge
+                dev, work, sensors, temp, fan, huge, blocked
 
     target
         If type is 'proc' or 'tproc' target represent the name of the

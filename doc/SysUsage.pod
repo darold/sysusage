@@ -79,6 +79,7 @@ or sysusagejqgraph need to be executed.
 	- Process created per second.
 	- Number of running process (ex: sendmail, httpd, oracle, etc.).
 	- Number of running thread (ex: mysqld, amarok, etc.).
+	- Number of task blocked waiting for I/O
 
 =head2 Notification
 
@@ -382,6 +383,7 @@ Full sample of configuration file:
 
 	[MONITOR]
 	load:threshold_max_value
+	blocked:threshold_max_value
 	cpu:threshold_max_value
 	cswch:threshold_max_value
 	intr:threshold_max_value
@@ -653,6 +655,7 @@ Type of system information you may want to monitor. It can takes
 around 30 differents values:
 
 	load   => monitor load average
+	blocked=> monitor task blocked waiting for I/O
 	cpu    => monitor each cpu(s) user/nice/system usage
 	       => monitor each cpu(s) total/iowait usage
 	       => monitor each cpu(s) steal/guest usage
@@ -785,7 +788,7 @@ these differents values:
 
 	load, cpu, cswch, intr, mem, swap, work, share, sock, socktw, io, file,
 	page, pcrea, pswap, net, tcp, err, disk, proc, tproc, queue, hddtemp,
-	dev, work, sensors, temp, fan, huge
+	dev, work, sensors, temp, fan, huge, blocked
 
 =item target
 
