@@ -694,10 +694,10 @@ sub createGraphic
 		$section = "Device Temperature";
 	} elsif ($target eq 'huge') {
 		$vlabel  = 'Bytes used';
-		$title   = 'Huge pages usage';
-		$legend_A = 'huge pages free';
+		$title   = 'Hugepages usage';
+		$legend_A = 'hugepages free';
 		$legend1 = 'long';
-		$legend_B = 'huge pages used';
+		$legend_B = 'hugepages used';
 		$legend2 = 'long';
 		$section = "Memory";
 	}
@@ -1036,7 +1036,7 @@ sub createHTML
 		$section = $1;
 		$submenu = $2;
 	} elsif ($target eq 'huge') {
-		$title   = 'Huge pages usage';
+		$title   = 'Hugepages usage';
 		$section = 'Memory';
 	}
 
