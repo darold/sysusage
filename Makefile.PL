@@ -153,6 +153,7 @@ SKIP        =
 # See documentation for more explanation
 [MONITOR]
 load:
+blocked:
 cpu:
 cswch:
 intr:

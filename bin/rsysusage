@@ -317,7 +317,7 @@ sub mon_load_average
 	my ($sar, $host, $type) = @_;
 
 	my %loadinfo = $sar->getReportType('load');
-print "LOAD: Queue length = $loadinfo{'runq-sz'}, Number of process = $loadinfo{'plist-sz'}, load average = $loadinfo{'ldavg-1'} / $loadinfo{'ldavg-5'} / $loadinfo{'ldavg-15'}\n" if ($Config{'GENERAL'}{'DEBUG'});
+print "LOAD: Queue length = $loadinfo{'runq-sz'}, Number of process = $loadinfo{'plist-sz'}, load average = $loadinfo{'ldavg-1'} / $loadinfo{'ldavg-5'} / $loadinfo{'ldavg-15'}, blocked => $loadinfo{'blocked'}\n" if ($Config{'GENERAL'}{'DEBUG'});
 	if (exists $CMD{'load'}) {
 		if (!$loadinfo{'ldavg-1'} && !$loadinfo{'ldavg-5'} && !$loadinfo{'ldavg-15'}) {
 			&insertIntDataNull($host, 'load');
@@ -325,6 +325,14 @@ print "LOAD: Queue length = $loadinfo{'runq-sz'}, Number of process = $loadinfo{
 			&insertIntData($host, 'load', $loadinfo{'ldavg-1'}, $loadinfo{'ldavg-5'}, $loadinfo{'ldavg-15'});
 		}
 		&send_warning($host, $type, $type, 'Load average', $loadinfo{'ldavg-1'});
+	}
+	if (exists $CMD{'blocked'}) {
+		if (!$loadinfo{'blocked'}) {
+			&insertIntDataNull($host, 'blocked');
+		} else {
+			&insertIntData($host, 'blocked', $loadinfo{'blocked'});
+		}
+		&send_warning($host, $type, $type, 'Tasks blocked', $loadinfo{'blocked'});
 	}
 }
 

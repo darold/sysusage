@@ -349,6 +349,12 @@ sub createLabels
 		$legend2 = 'float';
 		$legend3 = 'float';
 		$section = "Process";
+	} elsif ($target eq 'blocked') {
+		$vlabel  = 'Task';
+		$title   = 'Number of tasks blocked';
+		$legend_A = 'tasks';
+		$legend1 = 'Number of tasks';
+		$section = "Process";
 	} elsif ($target eq 'mem') {
 		$vlabel  = 'Bytes used';
 		$title   = 'Memory usage';
@@ -725,6 +731,9 @@ sub createHTML
 		$section = 'Network';
 	} elsif ($target eq 'load') {
 		$title   = 'Load Average';
+		$section = 'Process';
+	} elsif ($target eq 'blocked') {
+		$title   = 'Number of tasks blocked';
 		$section = 'Process';
 	} elsif ($target eq 'mem') {
 		$title   = 'Memory usage';
@@ -1729,6 +1738,15 @@ Command: sar -p
 
       ldavg-15
 	     System load average for the past 15 minutes.
+
+};
+	} elsif ($target =~ /blocked/) {
+
+		$help .= qq{
+Command: sar -p
+
+	blocked
+		Number of tasks currently blocked, waiting for I/O to complete.
 
 };
 	} elsif ($target =~ /pcrea/) {
