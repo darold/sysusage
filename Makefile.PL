@@ -158,6 +158,7 @@ cpu:
 cswch:
 intr:
 mem:
+dirty:
 share:
 swap:
 work:

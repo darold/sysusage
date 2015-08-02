@@ -446,6 +446,9 @@ sub mon_memory
 		$meminfo{kbbuffers} *= 1024;
 		$meminfo{kbcached} *= 1024;
 		$meminfo{kbmemshrd} *= 1024 if (exists $meminfo{kbmemshrd});
+		$meminfo{kbactive} *= 1024 if (exists $meminfo{kbactive});
+		$meminfo{kbinact} *= 1024 if (exists $meminfo{kbinact});
+		$meminfo{kbdirty} *= 1024 if (exists $meminfo{kbdirty});
 		$meminfo{realused} = $meminfo{kbmemused} - $meminfo{kbbuffers} - $meminfo{kbcached};
 		$meminfo{realused} -= $meminfo{kbmemshrd} if (exists $meminfo{kbmemshrd});
 		$meminfo{kbcached} += $meminfo{kbbuffers};
@@ -455,6 +458,13 @@ print "MEM: used => $meminfo{kbmemused} B, real used (without shared/buffer/cach
 			&insertIntDataNull($host, 'mem');
 		} else {
 			&insertIntData($host, 'mem', $meminfo{kbmemused}, $meminfo{realused}, $meminfo{kbcached});
+		}
+		if (exists $meminfo{kbactive}) {
+			if (!$meminfo{kbactive} && !$meminfo{kbinact} && !$meminfo{kbdirty}) {
+				&insertIntDataNull($host, 'dirty');
+			} else {
+				&insertIntData($host, 'dirty', $meminfo{kbactive}, $meminfo{kbinact}, $meminfo{kbdirty});
+			}
 		}
 		# memused: percentage of memory used.
 		my $totalmem = sprintf("%.2f", ($meminfo{kbmemused} / ($meminfo{'%memused'} || 1)) * 100);

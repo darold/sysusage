@@ -408,6 +408,16 @@ sub createGraphic
 		$legend2 = 'Bytes';
 		$legend3 = 'Bytes';
 		$section = "Memory";
+	} elsif ($target eq 'dirty') {
+		$vlabel  = 'Bytes used';
+		$title   = 'Memory dirty/active/inactive';
+		$legend_A = 'Amount of active memory';
+		$legend_B = 'Amount of inactive memory';
+		$legend_C = 'Amount of dirty memory';
+		$legend1 = 'Bytes';
+		$legend2 = 'Bytes';
+		$legend3 = 'Bytes';
+		$section = "Memory dirty";
 	} elsif ($target eq 'work') {
 		$vlabel  = 'Bytes needed';
 		$title   = 'Memory needed for workload';
@@ -900,6 +910,9 @@ sub createHTML
 	} elsif ($target eq 'mem') {
 		$title   = 'Memory usage';
 		$section = 'Memory';
+	} elsif ($target eq 'dirty') {
+		$title   = 'Memory dirty/active/inactive';
+		$section = 'Memory dirty';
 	} elsif ($target eq 'work') {
 		$title   = 'Memory needed';
 		$section = 'Memory';
@@ -1750,6 +1763,24 @@ Command: sar -r
 
 	Here Total memory used is kbmemused, memory cached is kbcached
 	and Memory used is (kbmemused - kbbuffers - kbcached).
+};
+	} elsif ($target =~ /dirty/) {
+		$help .= qq{
+Command: sar -r
+	kbactive
+		Amount of active memory in kilobytes (memory that has been used
+		more recently and usually not  reclaimed  unless  absolutely
+		necessary).
+
+	kbinact
+		Amount  of  inactive  memory in kilobytes (memory which has been
+		less recently used. It is more eligible to be reclaimed for
+		other purposes).
+
+	kbdirty
+		Amount of memory in kilobytes waiting to get written back to the
+		disk.
+
 };
 	} elsif ($target =~ /swap/) {
 		$help .= qq{
