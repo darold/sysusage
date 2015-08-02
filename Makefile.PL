@@ -175,10 +175,11 @@ proc:
 tproc:
 queue:
 dev:
-hddtemp:
-sensors:
-temp:
 huge:
+#hddtemp:
+#sensors:
+#temp:
+#fan:
 
 # This part enable the use of custom plugins. You can call any program/script
 # provide that it return 3 numbers separated by a space character. See plugins/

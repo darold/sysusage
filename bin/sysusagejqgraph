@@ -661,6 +661,12 @@ sub createLabels
 		$legend_B = 'hugepages used';
 		$legend2 = 'long';
 		$section = "Memory";
+	} elsif ($target eq 'fan') {
+		$vlabel  = 'Rotation per minute';
+		$title   = 'Fan speed';
+		$legend_A = 'rpm';
+		$legend1 = 'rpm';
+		$section = "Device Fan Speed";
 	}
 	push(@LINKS, { ('section' => $section, 'title' => $title, 'url' => "$target.html", 'plugmenu' => "$submenu") } );
 
@@ -859,6 +865,10 @@ sub createHTML
 		my $device = $1;
 		$title   = "Device $device temperature";
 		$section = 'Device';
+	} elsif ($target =~ /^fan/) {
+		$target =~ /^fan_(.*)/;
+		my $device = $1;
+		$title   = "Fan $device rpm";
 	} elsif ($target eq 'tcpseg') {
 		$title   = 'TCP segments usage';
 		$section = 'Network';
@@ -1207,6 +1217,10 @@ sub read_config
 				$thres_min = $other;
 			} elsif ($type eq 'temp') {
 				$type = "temp_$thres_max";
+				$thres_max = $thres_min;
+				$thres_min = $other;
+			} elsif ($type eq 'fan') {
+				$type = "fan_$thres_max";
 				$thres_max = $thres_min;
 				$thres_min = $other;
 			} elsif ($type eq 'mem') {
@@ -1816,6 +1830,17 @@ Command: sar -m TEMP
 	%temp
 		Relative  device  temperature. A value of 100% means that
 		temperature has reached its high limit (temp_max).
+
+};
+	} elsif ($target =~ /^fan_(.*)/) {
+		$help .= qq{
+Command: sar -m FAN
+
+	rpm
+		Fan speed expressed in revolutions per minute.
+
+	drpm
+		This field is calculated as the difference between current fan speed (rpm) and its low limit (fan_min).
 
 };
 	} elsif ($target =~ /^huge/) {

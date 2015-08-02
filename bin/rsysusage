@@ -208,6 +208,8 @@ sub do_monitor
 			&mon_tcp($sar, $host, $t);
 		} elsif ($t =~ /^temp_(.*)/) {
 			&mon_temperature($sar, $host, $t, $1);
+		} elsif ($t =~ /^fan_(.*)/) {
+			&mon_fan($sar, $host, $t, $1);
 		} elsif ($t eq 'huge') {
 			&mon_huge($sar, $host, $t);
 		} else {
@@ -985,6 +987,30 @@ print "TEMP: $name => degC: $tempinfo{$name}{'degC'}, %temp: $tempinfo{$name}{'%
 }
 
 ####
+# Function used to return Temperature usage
+####
+sub mon_fan
+{
+	my ($sar, $host, $type, $pattern) = @_;
+
+	my %faninfo = $sar->getReportType('fan');
+	foreach my $name (sort {$a <=> $b} keys %faninfo) {
+		next if ($name ne $pattern);
+		my $target = 'fan_' . $name;
+print "FAN: $name => rpm: $faninfo{$name}{'rpm'}, drpm: $faninfo{$name}{'drpm'}\n" if ($Config{'GENERAL'}{'DEBUG'});
+		if (exists $CMD{"$target"}) {
+			if (!$faninfo{$name}{'rpm'}) {
+				&insertIntDataNull($host, $target);
+			} else {
+				&insertIntData($host, $target, $faninfo{$name}{'rpm'}, $faninfo{$name}{'drpm'});
+			}
+			# Just warn on total of CPU usage (all fans)
+			&send_warning($host, $target, 'fan', "rpm", $faninfo{$name}{'drpm'});
+		}
+	}
+}
+
+####
 # Function used to return the huge pages usage
 ####
 sub mon_huge
@@ -1346,6 +1372,10 @@ sub read_config
 				$thres_min = $other[0];
 			} elsif ($type eq 'temp') {
 				$type = "temp_$thres_max";
+				$thres_max = $thres_min;
+				$thres_min = $other[0];
+			} elsif ($type eq 'fan') {
+				$type = "fan_$thres_max";
 				$thres_max = $thres_min;
 				$thres_min = $other[0];
 			} elsif ($type eq 'mem') {
