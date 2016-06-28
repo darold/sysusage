@@ -135,7 +135,7 @@ foreach my $dir (sort @mdirs) {
 	if ($#bases >= 0) {
 		&debug("main(): Found " . ($#bases + 1) . " rrdtool databases\n");
 	} else {
-		&debug("main(): No rrdtool databases found. You need to run sysusage.pl first\n");
+		&debug("main(): No rrdtool databases found. You need to run sysusage first\n");
 	}
 
 	@LINKS = ();

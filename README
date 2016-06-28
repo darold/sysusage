@@ -959,7 +959,7 @@ THRESHOLD NOTIFICATION
                             [-s smtp_srv] [-f from] [-d to] [-b hostname_prog]
 
             -t subject : Subject of the alarm
-            -c value   : Current value monitored by sysusage.pl
+            -c value   : Current value monitored by sysusage
             -v value   : Threshold value used.
             -s host    : SMTP server name or ip where to send email.
             -f from    : Sender email address of the alarm message.
