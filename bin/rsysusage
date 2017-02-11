@@ -29,7 +29,7 @@ use SysUsage::Sar;
 use POSIX qw(locale_h);
 setlocale(LC_ALL, 'C');
 
-my $VERSION = '5.4';
+my $VERSION = '5.5';
 
 $| = 1;
 
