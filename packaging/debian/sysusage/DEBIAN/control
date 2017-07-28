@@ -3,6 +3,7 @@ Version: 5.4
 Priority: optional
 Architecture: all
 Essential: no
+Section: admin
 Depends: sysstat, rrdtool, librrds-perl, httpd
 Pre-Depends: perl
 Installed-Size: 1024
