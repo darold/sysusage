@@ -1,4 +1,27 @@
-2015-01-07: v5.4
+2017-02-11: v5.5
+
+This release fixes several issues that was reported during the last
+year. It also adds some new features:
+
+  * Add new report on Active/Inactive/Dirty memory.
+  * Add report/monitoring of task number blocked waiting for I/O
+  * Add report on huges pages utilisation.
+  * Add monitoring/report for fan speed reported by sar.
+  * Allow report and alarm on device temperature reported by sar.
+  * Add GROUP section to be able to classify remote hosts on the index
+    page following their group.
+
+Here are the other changes:
+
+  - Remove .pl extension in messages and documentation. Thanks to
+    ak2766 for the report.
+  - Update documentation about new type: dirty.
+  - Update documentation about blocked report type
+  - All sensors monitoring have been commented by default in the
+    configuration file.
+  - Remove extra space on hugepages labels
+
+2015-01-07: v5.5
 
 This release fixes several issues that was reported during the last two years.
 It adds some new features:
@@ -34,7 +57,7 @@ Here is the complete list of changes:
 UPGRADE: just override your current installation backward compatibility is
 fully preserved.
 
-2012-04-04: v5.4
+2012-04-04: v5.5
 
 	- Extract cursor tooltip from legend with explicit label on all jqplot
 	  graphics.

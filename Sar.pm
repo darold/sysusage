@@ -1,7 +1,7 @@
 package SysUsage::Sar;
 #------------------------------------------------------------------------------
 # sysusage - Full system monitoring with RRDTOOL
-# Copyright (C) 2003-2015 Gilles Darold
+# Copyright (C) 2003-2017 Gilles Darold
 #
 #   This program is free software; you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
@@ -28,8 +28,8 @@ use open ':locale';
 BEGIN {
         use Exporter();
         use vars qw($VERSION $COPYRIGHT $AUTHOR @ISA @EXPORT);
-        $VERSION = '5.4';
-        $COPYRIGHT = 'Copyright (c) 2003-2015 Gilles Darold - All rights reserved.';
+        $VERSION = '5.5';
+        $COPYRIGHT = 'Copyright (c) 2003-2017 Gilles Darold - All rights reserved.';
         $AUTHOR = "Gilles Darold - gilles\@darold.net";
 
         @ISA = qw(Exporter);

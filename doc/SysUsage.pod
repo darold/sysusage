@@ -1,6 +1,6 @@
 =head1 NAME
 
-SysUsage v5.4 - System Monitoring Tool
+SysUsage v5.5 - System Monitoring Tool
 
 =head1 DESCRIPTION
 
@@ -1176,7 +1176,7 @@ at https://github.com/darold/sysusage/ or send a mail to the author.
 
 =head1 LICENSE
 
-Copyright (C) 2003-2015 Gilles Darold
+Copyright (C) 2003-2017 Gilles Darold
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
