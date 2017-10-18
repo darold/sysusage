@@ -148,8 +148,11 @@ foreach my $dir (sort @mdirs) {
 	} else {
 		&debug("main(): No rrdtool databases found. You need to run sysusage first\n");
 	}
-
+	my $kernel = '';
+	my $lastrun = '';
 	if (open(KFILE, "$Config{'GENERAL'}{'DATA_DIR'}$dir/kernel.txt")) {
+                $kernel = <KFILE>;
+                $lastrun = <KFILE>;
 		while (my $l = <KFILE>) {
 			chomp($l);
 			next if ($l !~ /^dev:/);
@@ -162,7 +165,7 @@ foreach my $dir (sort @mdirs) {
 	}
 	foreach my $b (@bases) {
 		&debug("main(): Generating graphics for base $b\n");
-		&createGraphic($b,$dir);
+		&createGraphic($b, $dir, $lastrun);
 	}
 
 	if (!$Config{'GENERAL'}{'DEBUG'}) {
@@ -292,7 +295,7 @@ sub debug
 
 sub createGraphic
 {
-	my ($target,$dir) = @_;
+	my ($target, $dir, $lastrun) = @_;
 
 	# reconfiguring text options
 	my $vlabel = '';
@@ -832,6 +835,7 @@ sub createGraphic
 		&debug("Creating $Config{'GENERAL'}{'DEST_DIR'}$dir/$target-$start.$img_ext\n");
 		my $tgt = $target;
 		$tgt =~ s/:/\\:/g;
+		$title .= " as of $lastrun" if ($lastrun && $title !~ / as of /);
 		my $answer = RRDs::graph("$Config{'GENERAL'}{'DEST_DIR'}$dir/$target-$start.$img_ext",
 			'--imgformat', $GRAPH_FORMAT, '--base', 1000, '--upper-limit', $opt_rigid,
 			'--start', $start, '--end', "-$Config{'GENERAL'}{'INTERVAL'}", '--width', $dim_width, '--height', $dim_height,
