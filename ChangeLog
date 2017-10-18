@@ -21,7 +21,7 @@ Here are the other changes:
     configuration file.
   - Remove extra space on hugepages labels
 
-2015-01-07: v5.5
+2015-01-07: v5.4
 
 This release fixes several issues that was reported during the last two years.
 It adds some new features:
@@ -57,7 +57,7 @@ Here is the complete list of changes:
 UPGRADE: just override your current installation backward compatibility is
 fully preserved.
 
-2012-04-04: v5.5
+2012-04-04: v5.3
 
 	- Extract cursor tooltip from legend with explicit label on all jqplot
 	  graphics.
