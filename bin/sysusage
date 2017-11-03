@@ -26,7 +26,7 @@ use File::Copy;
 use Getopt::Long;
 use FileHandle;
 use SysUsage::Sar;
-use POSIX qw(locale_h sys_wait_h);
+use POSIX qw(locale_h sys_wait_h strftime);
 setlocale(LC_ALL, 'C');
 
 use Benchmark;
@@ -285,7 +285,7 @@ sub do_monitor
 	# First line is the system kernel + date + uptime + sysstat_version
 	my $kernel = $sar->getHeader();
 	chomp($kernel);
-	my $curdate = localtime(time);
+	my $curdate = strftime("%Y-%m-%d %H:%M:%S", localtime(time));
 	if (!$RUN_REMOTELY && !$Config{'GENERAL'}{'DEBUG'}) {
 		unless(open(KFILE, ">$Config{'GENERAL'}{'DATA_DIR'}/$host/kernel.txt")) {
 			unlink("$Config{'GENERAL'}{'PID_DIR'}/sysusage.pid");
