@@ -1176,7 +1176,7 @@ at https://github.com/darold/sysusage/ or send a mail to the author.
 
 =head1 LICENSE
 
-Copyright (C) 2003-2017 Gilles Darold
+Copyright (C) 2003-2018 Gilles Darold
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
