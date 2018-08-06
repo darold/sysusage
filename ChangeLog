@@ -1,3 +1,34 @@
+2018-09-06: v5.6
+
+This release fixes several issues that was reported during the last
+year. It also adds some new features:
+
+  * Show timestamp in ISO format.
+  * Add documentation about installation from distribution packages.
+  * Replace call to ifconfig with ip.
+  * Add last run timestamp to title on GD::Graph images.
+  * Add "Section: admin" to debian control file.
+
+Here are the full list of changes:
+
+  - Fix typo in plugin sample.
+  - Add documentation about installation from distribution packages.
+  - Mark sysusagegraph using GD and GD::Graph as deprecated, it will
+    be removed in next makor release.
+  - Update year in copyright
+  - Fix errors in handling dirty and blocked reports. Thanks to
+    Barry Kwok for the report.
+  - Replace call to ifconfig by ip when ifconfig is not a available,
+    ifconfig has been removed in recent distributions like CentOs 7.
+  - Show timestamp in ISO format. Thanks to Claus Regelmann for the
+    feature request.
+  - Add last run timestamp to title on GD::Graph images. Thanks to
+    Claus Regelmann for the feature request.
+  - Fix unwanted replacement of version number.
+  - Add "Section: admin" to debian control file. Thanks to Matt
+    Lewandowsky for the report.
+
+
 2017-02-11: v5.5
 
 This release fixes several issues that was reported during the last

@@ -28,7 +28,7 @@ use open ':locale';
 BEGIN {
         use Exporter();
         use vars qw($VERSION $COPYRIGHT $AUTHOR @ISA @EXPORT);
-        $VERSION = '5.5';
+        $VERSION = '5.6';
         $COPYRIGHT = 'Copyright (c) 2003-2018 Gilles Darold - All rights reserved.';
         $AUTHOR = "Gilles Darold - gilles\@darold.net";
 

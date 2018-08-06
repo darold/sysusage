@@ -7,7 +7,7 @@
 
 Name: %{wname}
 Epoch: 0
-Version: 5.5
+Version: 5.6
 Release: 1%{?dist}
 Summary: System monitoring based on perl, rrdtool, and sysstat
 
@@ -148,9 +148,6 @@ rm -f `find %{buildroot}/%{_libdir}/perl*/ -name .packlist -type f`
 %dir %{webdir}
 
 %changelog
-* Sun Mar 11 2012 Gilles Darold <gilles@darold.net>
-- Update to 5.5
-
 * Tue Nov 24 2011 Gilles Darold <gilles@darold.net>
 - Add new sysusagejqgraph and rsysusage perl script
 

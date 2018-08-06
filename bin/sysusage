@@ -32,7 +32,7 @@ setlocale(LC_ALL, 'C');
 use Benchmark;
 use Proc::Queue size => 4, ':all';
 
-my $VERSION = '5.5';
+my $VERSION = '5.6';
 
 my $SYSSTAT_VERSION = '';
 
