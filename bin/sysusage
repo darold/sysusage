@@ -327,7 +327,11 @@ sub do_monitor
 			&mon_net_error($sar, $host, $t, @ifaces);
 		} elsif ($t eq 'load') {
 			&mon_load_average($sar, $host, $t);
+		} elsif ($t eq 'blocked') {
+			&mon_load_average($sar, $host, $t);
 		} elsif ($t eq 'mem') {
+			&mon_memory($sar, $host, $t);
+		} elsif ($t eq 'dirty') {
 			&mon_memory($sar, $host, $t);
 		} elsif ($t eq 'work') {
 			&mon_memory($sar, $host, $t);
@@ -490,6 +494,7 @@ print "LOAD: Queue length = $loadinfo{'runq-sz'}, Number of process = $loadinfo{
 		&send_warning($host, $type, $type, 'Load average', $loadinfo{'ldavg-1'});
 	}
 	if (exists $CMD{'blocked'}) {
+print "BLOCKED: Process blocked => $loadinfo{'blocked'}\n" if ($Config{'GENERAL'}{'DEBUG'});
 		if (!$loadinfo{'blocked'}) {
 			&insertIntDataNull($host, 'blocked');
 		} else {
@@ -609,9 +614,6 @@ sub mon_memory
 		$meminfo{kbbuffers} *= 1024;
 		$meminfo{kbcached} *= 1024;
 		$meminfo{kbmemshrd} *= 1024 if (exists $meminfo{kbmemshrd});
-		$meminfo{kbactive} *= 1024 if (exists $meminfo{kbactive});
-		$meminfo{kbinact} *= 1024 if (exists $meminfo{kbinact});
-		$meminfo{kbdirty} *= 1024 if (exists $meminfo{kbdirty});
 		$meminfo{realused} = $meminfo{kbmemused} - $meminfo{kbbuffers} - $meminfo{kbcached};
 		$meminfo{realused} -= $meminfo{kbmemshrd} if (exists $meminfo{kbmemshrd});
 		$meminfo{kbcached} += $meminfo{kbbuffers};
@@ -621,13 +623,6 @@ print "MEM: used => $meminfo{kbmemused} B, real used (without shared/buffer/cach
 			&insertIntDataNull($host, 'mem');
 		} else {
 			&insertIntData($host, 'mem', $meminfo{kbmemused}, $meminfo{realused}, $meminfo{kbcached});
-		}
-		if (exists $meminfo{kbactive}) {
-			if (!$meminfo{kbactive} && !$meminfo{kbinact} && !$meminfo{kbdirty}) {
-				&insertIntDataNull($host, 'dirty');
-			} else {
-				&insertIntData($host, 'dirty', $meminfo{kbactive}, $meminfo{kbinact}, $meminfo{kbdirty});
-			}
 		}
 		# memused: percentage of memory used.
 		my $totalmem = sprintf("%.2f", ($meminfo{kbmemused} / ($meminfo{'%memused'} || 1)) * 100);
@@ -654,6 +649,20 @@ print "WORK: memory needed => $meminfo{kbcommit} B, Percent => $meminfo{'%commit
 			&insertIntData($host, 'work', $meminfo{kbcommit}, 0, 0);
 		}
 		&send_warning($host, 'work','work', 'Memory needed for current workload', $meminfo{'%commit'});
+	}
+	if (($type eq 'dirty') && exists $CMD{'dirty'}) {
+		# Memory active/inactive/dirtied
+		$meminfo{kbactive} *= 1024 if (exists $meminfo{kbactive});
+		$meminfo{kbinact} *= 1024 if (exists $meminfo{kbinact});
+		$meminfo{kbdirty} *= 1024 if (exists $meminfo{kbdirty});
+print "DIRTY: active => $meminfo{kbactive}, inactive => $meminfo{kbinact}, dirty => $meminfo{kbdirty} B\n" if ($Config{'GENERAL'}{'DEBUG'});
+
+		if (!$meminfo{kbactive} && !$meminfo{kbinact} && !$meminfo{kbdirty}) {
+			&insertIntDataNull($host, 'dirty');
+		} else {
+			&insertIntData($host, 'dirty', $meminfo{kbactive}, $meminfo{kbinact}, $meminfo{kbdirty});
+		}
+		&send_warning($host, 'dirty','dirty', 'Dirty memory in Kb', $meminfo{kbdirty}/1024);
 	}
 }
 
@@ -1704,6 +1713,17 @@ sub read_config
 				if ($thres_max && ($thres_max > 100)) {
 					print STDERR "WARNING: threshold memory must now be a percentage, setting it to 99%\n";
 					$thres_max = 99;
+				}
+				$thres_max .= "($delay)" if ($delay);
+			} elsif ($type eq 'dirty') {
+				my $delay = 0;
+				if ($thres_max =~ s/\((\d+)\)//) {
+					$delay = $1;
+				}
+				# Warn threshold max for dirty memory is in percent
+				if ($thres_max && ($thres_max > 100)) {
+					print STDERR "WARNING: threshold for dirty memory must be a percentage, setting it to 20%\n";
+					$thres_max = 20;
 				}
 				$thres_max .= "($delay)" if ($delay);
 			}

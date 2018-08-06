@@ -258,6 +258,12 @@ print STDERR "Sar report 'work': $headers[$j] => $self->{report}{'work'}{$header
 			} elsif ( ($type eq 'mem') && ($headers[$j] eq 'kbcommit') ) {
 				$self->{report}{'work'}{$headers[$j]} = $values[$j];
 print STDERR "Sar report 'work': $headers[$j] => $self->{report}{'work'}{$headers[$j]}\n" if ($self->{'debug'});
+			} elsif ( ($type eq 'mem') && ($headers[$j] =~ /kbactive|kbinac|kbdirty/) ) {
+				$self->{report}{'dirty'}{$headers[$j]} = $values[$j];
+print STDERR "Sar report 'dirty': $headers[$j] => $self->{report}{'dirty'}{$headers[$j]}\n" if ($self->{'debug'});
+			} elsif ( ($type eq 'load') && ($headers[$j] =~ /blocked/) ) {
+				$self->{report}{'blocked'}{$headers[$j]} = $values[$j];
+print STDERR "Sar report 'blocked': $headers[$j] => $self->{report}{'blocked'}{$headers[$j]}\n" if ($self->{'debug'});
 			} elsif (!grep(/^$headers[0]$/, 'name', 'number')) {
 				$self->{report}{$type}{$headers[$j]} = $values[$j];
 print STDERR "Sar report '$type': $headers[$j] => $self->{report}{$type}{$headers[$j]}\n" if ($self->{'debug'});
