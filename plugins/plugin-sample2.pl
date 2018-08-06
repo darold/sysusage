@@ -21,7 +21,7 @@ foreach my $host (@SERVERS) {
 	# High precision syntax (requires Time::HiRes)
 	my $p = Net::Ping->new();
 	$p->hires();
-	my ($ret, $duration, $ip) = $p->ping($host, 5.5);
+	my ($ret, $duration, $ip) = $p->ping($host, 3);
 	my $time = localtime(time);
 	if ($ret) {
 		#printf("$time $host [ip: $ip] is alive (packet return time: %.2f ms)\n", 1000 * $duration);
