@@ -106,12 +106,21 @@ installation on remote host that will only require sysstat and rsysusage.
 
 =head2 rrdtool
 
-You need to install rrdtool. You can find it at:
+You need to install rrdtool. All distribution may have a dedicated package
+for rrdtool. On CentOs/RedHat distributions, use the following command:
+
+	yum install rrdtool rrdtool-perl
+
+on Debian/Ubuntu distributions use command:
+
+	apt-get install rrdtool librrds-perl
+
+The sources can be found here:
 
 	http://people.ee.ethz.ch/~oetiker/
 
-To use the RRDs perl module you must use the following command
-to compile the distrib:
+If you compile from sources and want to use the RRDs perl module embedded
+with it, you must use the following command to compile:
 
 	make site-perl-install
 
@@ -120,12 +129,28 @@ This installation is optional if sysusage is installed on a remote host.
 =head2 sysstat
 
 You also need sar to collect statistics. Sar is part of the sysstat
-package. You can find it here :
+package. For RPM like distributions:
+
+	yum install sysstat
+
+and Debian like distributions:
+
+	apt-get install sysstat
+
+The sources can always be found here :
 
 	http://freshmeat.net/projects/sysstat/
 
 If you plan to use threshold notification you must have Net::SMTP installed.
-It can be found on CPAN (http://search.cpan.org)
+
+	yum install perl-Net-SMTP-SSL
+
+or
+
+	apt-get install libnet-smtp-ssl-perl
+
+Sources can be found on CPAN (https://metacpan.org/pod/Net::SMTP)
+
 
 =head2 Perl modules
 
@@ -134,9 +159,10 @@ using ssh. The remote calls are proceed simultaneously using fork with the
 Proc::Queue Perl module.
 
 If you're plan tu use sysusagegraph instead of sysusagejqgrpah you will also
-need the GD and GD::Graph3D Perl modules.
+need the GD and GD::Graph3D Perl modules. Note that the use of GD and GD::Graph
+is deprecated and sysusagegraph will be removed in next major release (6.0).
 
-All these modules are always available from CPAN (http://search.cpan.org/)
+All these modules are always available from CPAN (https://metacpan.org/)
 and may at least be installed on the central server. On remote host this is
 optional and depend if you want to run it on each server or by ssh from a
 central place.
@@ -227,19 +253,14 @@ In directory packaging/ you will find all scripts to build RPM, slackBuild
 and debian package. See README in this directory to know how to build these
 packages.
 
-=head2 Previous version
-
-Previous version used to ask a lot of questions during install, this
-was removed since version 3.0 to the benefice of simplicity and a default
-configuration file.
-
 
 =head1 USAGE
 
 SysUsage consist in two main Perl scripts, sysusage and sysusagegraph. Once you
 have correctly installed and configured SysUsage the best way to execute them
 is by setting a cron job. If you prefer javascript graphics instead of GD::Graph
-images use sysusagejqgraph that is based on jqplot javascript library.
+images use sysusagejqgraph that is based on jqplot javascript library. This is
+the recommanded script as use of GD::Graph through sysusagegraph is deprecated.
 
 =head2 sysusage
 
@@ -268,7 +289,7 @@ from multiple servers.
 Where 'remote_hostname' is the hostname given in the [REMOTE ...] configuration
 section.
 
-=head2 sysusagegraph / sysusagejqgraph
+=head2 sysusagegraph (deprecated) / sysusagejqgraph
 
 The perl script sysusagegraph is used to draw PNG graphs and write HTML file.
 As he knows the pooling interval given in the configuration file it can be

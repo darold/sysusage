@@ -92,12 +92,22 @@ FEATURES
 
 REQUIREMENT
   rrdtool
-    You need to install rrdtool. You can find it at:
+    You need to install rrdtool. All distribution may have a dedicated
+    package for rrdtool. On CentOs/RedHat distributions, use the following
+    command:
+
+            yum install rrdtool rrdtool-perl
+
+    on Debian/Ubuntu distributions use command:
+
+            apt-get install rrdtool librrds-perl
+
+    The sources can be found here:
 
             http://people.ee.ethz.ch/~oetiker/
 
-    To use the RRDs perl module you must use the following command to
-    compile the distrib:
+    If you compile from sources and want to use the RRDs perl module
+    embedded with it, you must use the following command to compile:
 
             make site-perl-install
 
@@ -105,12 +115,28 @@ REQUIREMENT
 
   sysstat
     You also need sar to collect statistics. Sar is part of the sysstat
-    package. You can find it here :
+    package. For RPM like distributions:
+
+            yum install sysstat
+
+    and Debian like distributions:
+
+            apt-get install sysstat
+
+    The sources can always be found here :
 
             http://freshmeat.net/projects/sysstat/
 
     If you plan to use threshold notification you must have Net::SMTP
-    installed. It can be found on CPAN (http://search.cpan.org)
+    installed.
+
+            yum install perl-Net-SMTP-SSL
+
+    or
+
+            apt-get install libnet-smtp-ssl-perl
+
+    Sources can be found on CPAN (https://metacpan.org/pod/Net::SMTP)
 
   Perl modules
     Sysusage can be run in a central place to collect remote sysusage
@@ -118,12 +144,14 @@ REQUIREMENT
     fork with the Proc::Queue Perl module.
 
     If you're plan tu use sysusagegraph instead of sysusagejqgrpah you will
-    also need the GD and GD::Graph3D Perl modules.
+    also need the GD and GD::Graph3D Perl modules. Note that the use of GD
+    and GD::Graph is deprecated and sysusagegraph will be removed in next
+    major release (6.0).
 
-    All these modules are always available from CPAN
-    (http://search.cpan.org/) and may at least be installed on the central
-    server. On remote host this is optional and depend if you want to run it
-    on each server or by ssh from a central place.
+    All these modules are always available from CPAN (https://metacpan.org/)
+    and may at least be installed on the central server. On remote host this
+    is optional and depend if you want to run it on each server or by ssh
+    from a central place.
 
   Nagios nsca client (optional)
     If you want to send message to Nagios you need to install
@@ -204,17 +232,13 @@ INSTALLATION
     slackBuild and debian package. See README in this directory to know how
     to build these packages.
 
-  Previous version
-    Previous version used to ask a lot of questions during install, this was
-    removed since version 3.0 to the benefice of simplicity and a default
-    configuration file.
-
 USAGE
     SysUsage consist in two main Perl scripts, sysusage and sysusagegraph.
     Once you have correctly installed and configured SysUsage the best way
     to execute them is by setting a cron job. If you prefer javascript
     graphics instead of GD::Graph images use sysusagejqgraph that is based
-    on jqplot javascript library.
+    on jqplot javascript library. This is the recommanded script as use of
+    GD::Graph through sysusagegraph is deprecated.
 
   sysusage
     The script sysusage is responsible of collecting system informations at
@@ -242,7 +266,7 @@ USAGE
     Where 'remote_hostname' is the hostname given in the [REMOTE ...]
     configuration section.
 
-  sysusagegraph / sysusagejqgraph
+  sysusagegraph (deprecated) / sysusagejqgraph
     The perl script sysusagegraph is used to draw PNG graphs and write HTML
     file. As he knows the pooling interval given in the configuration file
     it can be run at any time. I used to run it each five minutes but you
