@@ -310,7 +310,11 @@ sub do_monitor
 	}
 
 	# Get running network interfaces
-	my @ifaces = `LC_ALL=C /sbin/ifconfig | grep -v "^ " | grep -v "^\$" | awk '{print \$1}'`;
+	my @ifaces = `LC_ALL=C /sbin/ifconfig 2>/dev/null | grep -v "^ " | grep -v "^\$" | awk '{print \$1}'`;
+	if ($#ifaces == -1) {
+		# ifconfig is deprecated use ip a instead
+		@ifaces = `LC_ALL=C /sbin/ip a 2>/dev/null | grep -v "^ " | grep -v "^\$" | awk '{print \$2}'`;
+	}
 	chomp(@ifaces);
 
 	# Find what to do with the given command
