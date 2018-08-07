@@ -316,6 +316,7 @@ sub do_monitor
 		@ifaces = `LC_ALL=C /sbin/ip a 2>/dev/null | grep -v "^ " | grep -v "^\$" | awk '{print \$2}'`;
 	}
 	chomp(@ifaces);
+	map { s/:$//; } @ifaces;
 
 	# Find what to do with the given command
 	foreach my $t (keys %CMD) {
