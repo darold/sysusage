@@ -198,7 +198,7 @@ sub parseSarOutput
 			$headers[0] = 'name';
 			next;
 		}
-		if ($self->{data}[$i] =~ m#^DEV\s+.*rd_sec#) {
+		if ($self->{data}[$i] =~ m#^DEV\s+.*(rd_sec/s|rkB/s)#) {
 			$type = 'dev';
 			$headers[0] = 'name';
 			next;

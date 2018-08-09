@@ -410,10 +410,17 @@ sub createLabels
 		$tmp =~ s#_#/#g;
 		$tmp =~ s#\{TMPCHAR\}#_#g;
 		my $dev = $DEVALIAS{$tmp} || $tmp;
-		$vlabel  = 'I/O sectors from device';
-		$title   = "I/O sectors on $dev";
-		$legend_A = 'Read sectors per second';
-		$legend_B = 'Write sectors per second';
+		if ($SYSSTAT_VERSION lt "11.5.7") {
+			$vlabel  = 'I/O sectors from device';
+			$title   = "I/O sectors on $dev";
+			$legend_A = 'Read sectors per second';
+			$legend_B = 'Write sectors per second';
+		} else {
+			$vlabel  = 'I/O from device';
+			$title   = "I/O on $dev";
+			$legend_A = 'Read Kb per second';
+			$legend_B = 'Write Kb per second';
+		}
 		$legend1 = 'long';
 		$legend2 = 'long';
 		$section = "Device $dev";
@@ -1411,7 +1418,8 @@ Command: sar -u ALL
 If a disk is more than 60% busy over sustained periods of time, this can
 indicate overuse of that resource.
 
-Another way to identify a disk bottleneck is to use avgqu-sz >= 2.
+Another way to identify a disk bottleneck is to use avgqu-sz >= 2 or
+aqu-sz in sysstat >= 11.5.7.
 
 Command: sar -p -d
 
@@ -1424,6 +1432,12 @@ Command: sar -p -d
       avgqu-sz
 	     The average queue  length  of  the  requests  that  were
 	     issued to the device.
+
+since sysstat >= 11.5.7
+
+      aqu-sz
+	     The average queue length of the requests that were issued to the device.
+	     Note: In previous versions, this field was known as avgqu-sz.
 
 };
 	} elsif ($target =~ /devio_/) {
@@ -1438,6 +1452,16 @@ Command: sar -p -d
       wr_sec/s
 	     Number  of  sectors written to the device. The size of a
 	     sector is 512 bytes.
+
+since sysstat >= 11.5.7
+
+      rkB/s
+	     Number of kilobytes read from the device per second.
+
+      wkB/s
+	     Number of kilobytes written to the device per second.
+
+
 };
 	} elsif ($target =~ /devtput_/) {
 	
@@ -1446,6 +1470,10 @@ The value of blks/s combined with %util give an indication of the maximum I/O
 throughput of a disk, and may suggest where a I/O bottleneck can occur: 
 
 	Maximum disk throughput (KB/s) = (rd_sec/s + wr_sec/s) * 50 / %util
+
+or since sysstat >= 11.5.7:
+
+	Maximum disk throughput (KB/s) = (rkB/s + wkB/s) * 50 / %util
 
 This monitoring comes from <a href="http://osr507doc.sco.com/en/PERFORM/ident_IO_bound.html" target="_new">Identifying disk I/O-bound systems</a>
  
@@ -1464,6 +1492,16 @@ Command: sar -p -d
 	     issued to  the  device  (bandwidth  utilization  for  the
 	     device).  Device  saturation  occurs  when  this value is
 	     close to 100%.
+
+since sysstat >= 11.5.7
+
+      rkB/s
+	     Number of kilobytes read from the device per second.
+
+      wkB/s
+	     Number of kilobytes written to the device per second.
+
+
 };
 	} elsif ($target =~ /devwork_/) {
 	
@@ -1490,13 +1528,18 @@ equation:
 	%r = rd_sec / (rd_sec + wr_sec);
 	%w = wr_sec / (rd_sec + wr_sec);
 
+or since sysstat >= 11.5.7:
+
+	%r = rkB / (rkB + wkB);
+	%w = wkB / (rkB + wkB);
+
 This IOPS monitoring is build following the excellent article of Nick Anderson
 readable from <a href="http://www.cmdln.org/2010/04/22/analyzing-io-performance-in-linux/" target="_new">Analyzing I/O performance in Linux</a>.
 
 Note: you can considere entering into lost of performence when your storage
 system reach 70% utilization of theoretical max IOPS.
 
-rd_sec, wr_sec iand tps are obtained with the command: sar -p -d
+rd_sec, wr_sec and tps are obtained with the command: sar -p -d
 
       rd_sec/s
 	     Number of sectors read from the device. The  size  of  a
@@ -1511,6 +1554,16 @@ rd_sec, wr_sec iand tps are obtained with the command: sar -p -d
 	     issued to the device.  Multiple logical requests can  be
 	     combined  into  a  single  I/O  request to the device. A
 	     transfer is of indeterminate size.
+
+
+since sysstat >= 11.5.7
+
+      rkB/s
+	     Number of kilobytes read from the device per second.
+
+      wkB/s
+	     Number of kilobytes written to the device per second.
+
 
 };
 

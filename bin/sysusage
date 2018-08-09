@@ -519,7 +519,11 @@ sub mon_dev
 
 	foreach my $name (keys %devinfo) {
 		next if ( ($device ne 'all') && ($device ne $name));
+		if (exists $devinfo{$name}{'rd_sec'}) {
 print "DEV $name: %util = $devinfo{$name}{'%util'}, rd_sec/s = $devinfo{$name}{'rd_sec'}, wr_sec/s = $devinfo{$name}{'wr_sec'}, avgqu-sz => $devinfo{$name}{'avgqu-sz'}\n" if ($Config{'GENERAL'}{'DEBUG'});
+		} else {
+print "DEV $name: %util = $devinfo{$name}{'%util'}, rkB/s = $devinfo{$name}{'rkB'}, wkB/s = $devinfo{$name}{'wkB'}, aqu-sz => $devinfo{$name}{'aqu-sz'}\n" if ($Config{'GENERAL'}{'DEBUG'});
+		}
 		my $target = 'dev_';
 		$target .= $name;
 		if (exists $CMD{$target}) {
@@ -527,20 +531,37 @@ print "DEV $name: %util = $devinfo{$name}{'%util'}, rd_sec/s = $devinfo{$name}{'
 			$target =~ s#_#__#g;
 			$target =~ s#/#_#g;
 			$target = 'dev_' . $target;
-			if (!$devinfo{$name}{'%util'} && !$devinfo{$name}{'avgqu-sz'}) {
-				&insertIntDataNull($host, $target);
+			# Handle change since 11.5.7
+			if (exists $devinfo{$name}{'avgqu-sz'}) {
+				if (!$devinfo{$name}{'%util'} && !$devinfo{$name}{'avgqu-sz'}) {
+					&insertIntDataNull($host, $target);
+				} else {
+					&insertIntData($host, $target, $devinfo{$name}{'%util'},$devinfo{$name}{'avgqu-sz'},0);
+				}
 			} else {
-				&insertIntData($host, $target, $devinfo{$name}{'%util'},$devinfo{$name}{'avgqu-sz'},0);
+				if (!$devinfo{$name}{'%util'} && !$devinfo{$name}{'aqu-sz'}) {
+					&insertIntDataNull($host, $target);
+				} else {
+					&insertIntData($host, $target, $devinfo{$name}{'%util'},$devinfo{$name}{'aqu-sz'},0);
+				}
 			}
 			&send_warning($host, $target, 'dev', "Device $name CPU Usage", $devinfo{$name}{'%util'});
 			$target = $name;
 			$target =~ s#_#__#g;
 			$target =~ s#/#_#g;
 			$target = 'devio_' . $target;
-			if (!$devinfo{$name}{'rd_sec'} && !$devinfo{$name}{'wr_sec'}) {
-				&insertIntDataNull($host, $target);
+			if (exists $devinfo{$name}{'rd_sec'}) {
+				if (!$devinfo{$name}{'rd_sec'} && !$devinfo{$name}{'wr_sec'}) {
+					&insertIntDataNull($host, $target);
+				} else {
+					&insertIntData($host, $target, $devinfo{$name}{'rd_sec'}, $devinfo{$name}{'wr_sec'},0);
+				}
 			} else {
-				&insertIntData($host, $target, $devinfo{$name}{'rd_sec'}, $devinfo{$name}{'wr_sec'},0);
+				if (!$devinfo{$name}{'rkB'} && !$devinfo{$name}{'wkB'}) {
+					&insertIntDataNull($host, $target);
+				} else {
+					&insertIntData($host, $target, $devinfo{$name}{'rkB'}, $devinfo{$name}{'wkB'},0);
+				}
 			}
 			$target = $name;
 			$target =~ s#_#__#g;
@@ -557,9 +578,16 @@ print "DEV $name: %util = $devinfo{$name}{'%util'}, rd_sec/s = $devinfo{$name}{'
 				# Get read/write workload
 				my $r_work = 0;
 				my $w_work = 0;
-				if ($devinfo{$name}{'rd_sec'} && $devinfo{$name}{'wr_sec'}) {
-					$r_work = $devinfo{$name}{'rd_sec'} / (($devinfo{$name}{'rd_sec'} + $devinfo{$name}{'wr_sec'}) || 1);
-					$w_work = $devinfo{$name}{'wr_sec'} / (($devinfo{$name}{'rd_sec'} + $devinfo{$name}{'wr_sec'}) || 1);
+				if (exists $devinfo{$name}{'rd_sec'}) {
+					if ($devinfo{$name}{'rd_sec'} && $devinfo{$name}{'wr_sec'}) {
+						$r_work = $devinfo{$name}{'rd_sec'} / (($devinfo{$name}{'rd_sec'} + $devinfo{$name}{'wr_sec'}) || 1);
+						$w_work = $devinfo{$name}{'wr_sec'} / (($devinfo{$name}{'rd_sec'} + $devinfo{$name}{'wr_sec'}) || 1);
+					}
+				} else {
+					if ($devinfo{$name}{'rkB'} && $devinfo{$name}{'wkB'}) {
+						$r_work = $devinfo{$name}{'rkB'} / (($devinfo{$name}{'rkB'} + $devinfo{$name}{'wkB'}) || 1);
+						$w_work = $devinfo{$name}{'wkB'} / (($devinfo{$name}{'rkB'} + $devinfo{$name}{'wkB'}) || 1);
+					}
 				}
 				$w_work ||= 1;
 				$r_work ||= 1;
@@ -580,7 +608,12 @@ print "DEVWORK $name: \%read = $r_work, \%write = $w_work, tps = $tps, iops = $i
 			}
 			$target = 'dev_';
 			$target .= $name;
-			my $blks = $devinfo{$name}{'rd_sec'} + $devinfo{$name}{'wr_sec'};
+			my $blks = '';
+			if (exists $devinfo{$name}{'rd_sec'}) {
+				$blks = $devinfo{$name}{'rd_sec'} + $devinfo{$name}{'wr_sec'};
+			} else {
+				$blks = $devinfo{$name}{'rkB'} + $devinfo{$name}{'wkB'};
+			}
 			my $busy = $devinfo{$name}{'%util'};
 			$busy = 1.00 if ($busy == 0.00);
 			my $throughput = sprintf("%.2f", ($blks*50)/$busy);
