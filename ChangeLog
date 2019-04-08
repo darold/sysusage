@@ -1,4 +1,29 @@
-2018-09-06: v5.6
+2018-08-11: v5.7
+
+This is a maintenance release that fixes a bug introduced in last release
+It also adds a new feature:
+
+    Adapt sysusage and sysusagejqgraph to changes into sar sysstat tool
+    since version 11.5.7. As per sysstat commit 8d635e0:
+    
+        sar: Update "sar -d" output contents
+    
+        Replace "rd_sec/s" and "wr_sec/s" fields with "rkB/s" and "wkB/s". These
+        fields are now expressed in kilobytes instead of sectors. This also make
+        them consistent with iostat's output.
+    
+        Replace "avgrq-sz" field with "areq-sz". This field is now expressed in
+        kilobytes instead of sectors and make it consistent with iostat's output.
+    
+        Rename "avgqu-sz" field to "aqu-sz" to make it consistent with iostat's
+        output.
+
+Here are the list of other changes:
+
+    - Fix per network devices storage. Thanks to Barry Kwok for the report.
+    - Apply changes from last release to rsysusage.
+
+2018-08-06: v5.6
 
 This release fixes several issues that was reported during the last
 year. It also adds some new features:
@@ -27,7 +52,6 @@ Here are the full list of changes:
   - Fix unwanted replacement of version number.
   - Add "Section: admin" to debian control file. Thanks to Matt
     Lewandowsky for the report.
-
 
 2017-02-11: v5.5
 

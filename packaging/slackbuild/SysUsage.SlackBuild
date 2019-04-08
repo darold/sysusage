@@ -12,7 +12,7 @@
 
 ## Fill these variables to your needs ##
 NAMESRC=${NAMESRC:-SysUsage-Sar}
-VERSION=${VERSION:-5.6}
+VERSION=${VERSION:-5.7}
 EXT=${EXT:-tar.gz}
 NAMEPKG=${NAMEPKG:-SysUsage}
 PKGEXT=${PKGEXT:-tgz/txz}

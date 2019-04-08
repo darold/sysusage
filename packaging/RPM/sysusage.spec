@@ -7,7 +7,7 @@
 
 Name: %{wname}
 Epoch: 0
-Version: 5.6
+Version: 5.7
 Release: 1%{?dist}
 Summary: System monitoring based on perl, rrdtool, and sysstat
 

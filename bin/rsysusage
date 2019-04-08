@@ -29,7 +29,7 @@ use SysUsage::Sar;
 use POSIX qw(locale_h strftime);
 setlocale(LC_ALL, 'C');
 
-my $VERSION = '5.6';
+my $VERSION = '5.7';
 
 $| = 1;
 
